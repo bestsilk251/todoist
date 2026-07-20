@@ -1,0 +1,66 @@
+[
+  {
+    "name": "uk multi-task split with two times",
+    "input": "сьогодні до лікаря на 3 а завтра на 4 купити телефон",
+    "currentDate": "2026-07-20",
+    "expectedTaskCount": 2,
+    "expectedFirstTitle": "До лікаря",
+    "expectedFirstDate": "2026-07-20"
+  },
+  {
+    "name": "en relative date, no explicit time",
+    "input": "call mom tomorrow morning",
+    "currentDate": "2026-07-20",
+    "expectedTaskCount": 1,
+    "expectedFirstTitle": "Call mom",
+    "expectedFirstDate": "2026-07-21"
+  },
+  {
+    "name": "uk task with no date at all",
+    "input": "нагадай купити хліб",
+    "currentDate": "2026-07-20",
+    "expectedTaskCount": 1,
+    "expectedFirstTitle": "Купити хліб",
+    "expectedFirstDate": null
+  },
+  {
+    "name": "uk ambiguous time flags needs_confirmation",
+    "input": "зустріч о 5",
+    "currentDate": "2026-07-20",
+    "expectedTaskCount": 1,
+    "expectedFirstTitle": "Зустріч",
+    "expectedFirstDate": "2026-07-20"
+  },
+  {
+    "name": "en explicit am time is unambiguous",
+    "input": "dentist tomorrow at 9am",
+    "currentDate": "2026-07-20",
+    "expectedTaskCount": 1,
+    "expectedFirstTitle": "Dentist",
+    "expectedFirstDate": "2026-07-21"
+  },
+  {
+    "name": "uk all-day task for a named day",
+    "input": "завтра прибрати квартиру",
+    "currentDate": "2026-07-20",
+    "expectedTaskCount": 1,
+    "expectedFirstTitle": "Прибрати квартиру",
+    "expectedFirstDate": "2026-07-21"
+  },
+  {
+    "name": "en multi-task split in one sentence",
+    "input": "buy milk today and call the bank tomorrow",
+    "currentDate": "2026-07-20",
+    "expectedTaskCount": 2,
+    "expectedFirstTitle": "Buy milk",
+    "expectedFirstDate": "2026-07-20"
+  },
+  {
+    "name": "uk month rollover date arithmetic",
+    "input": "завтра оплатити рахунок",
+    "currentDate": "2026-07-31",
+    "expectedTaskCount": 1,
+    "expectedFirstTitle": "Оплатити рахунок",
+    "expectedFirstDate": "2026-08-01"
+  }
+]

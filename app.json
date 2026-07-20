@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Voice Todo",
+    "slug": "voice-todo",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.voicetodo.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Мікрофон використовується для голосового додавання задач.",
+        "NSSpeechRecognitionUsageDescription": "Розпізнавання мовлення використовується, щоб перетворити ваш голос у задачі."
+      }
+    },
+    "android": {
+      "package": "com.voicetodo.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-asset"
+    ],
+    "extra": {
+      "eas": {}
+    }
+  }
+}
