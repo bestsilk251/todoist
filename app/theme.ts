@@ -5,10 +5,11 @@
  *   Native pixels: 1206 × 2622 px (@3x, 460 ppi)
  *   Safe area    : top 62 pt (Dynamic Island), bottom 34 pt (home indicator)
  *
- * Everything below is expressed in points on an 8-pt grid so layouts scale
- * predictably to smaller phones (iPhone SE, 375 pt) and larger ones
- * (16 Pro Max, 440 pt). Never hard-code 402 in a layout — use flex plus these
- * tokens, and use `DEVICE` only for test assertions and design references.
+ * The visual language is the dark "Task Manager v5" redesign: near-black
+ * background (#0B0B0D), red accent (#E53935), muted category palette and
+ * priority-only left-bar indicators. Everything below is expressed in points
+ * on an 8-pt grid so layouts scale predictably to smaller and larger phones.
+ * Never hard-code 402 in a layout — use flex plus these tokens.
  */
 
 import { Dimensions, PixelRatio, Platform } from 'react-native';
@@ -36,11 +37,9 @@ export const screen = {
   get scale() {
     return PixelRatio.get();
   },
-  /** True on 402-pt-wide devices (16 Pro, 15 Pro, 14 Pro). */
   get isReferenceWidth() {
     return Math.round(Dimensions.get('window').width) === DEVICE.width;
   },
-  /** Narrower than the reference — tighten padding, allow text to wrap. */
   get isCompact() {
     return Dimensions.get('window').width < DEVICE.width;
   },
@@ -67,10 +66,7 @@ export const touch = {
   iconButton: 48,
 } as const;
 
-/**
- * Type scale in points. Sizes track iOS Dynamic Type defaults so the app reads
- * naturally next to system UI on a 402-pt screen.
- */
+/** Type scale in points. */
 export const typography = {
   title: { fontSize: 28, lineHeight: 34, fontWeight: '700' },
   heading: { fontSize: 20, lineHeight: 25, fontWeight: '600' },
@@ -81,37 +77,130 @@ export const typography = {
   caption: { fontSize: 12, lineHeight: 16, fontWeight: '400' },
 } as const;
 
-export const colors = {
-  background: '#ffffff',
-  surface: '#f9fafb',
-  border: '#e5e7eb',
-  borderStrong: '#d1d5db',
-  text: '#111827',
-  textMuted: '#6b7280',
-  textFaint: '#9ca3af',
-  primary: '#2563eb',
-  primaryText: '#ffffff',
-  warning: '#f59e0b',
-  warningSurface: '#fffbeb',
-  warningText: '#b45309',
-  danger: '#dc2626',
+/**
+ * Full v5 dark palette. `colors` keeps the historical key names (so the older
+ * light-theme screens still type-check) but every value now points at its dark
+ * equivalent. Reach for `palette` for the complete, design-accurate set.
+ */
+export const palette = {
+  /** Backgrounds */
+  pageBg: '#050506', // outer frame behind the phone
+  bg: '#0B0B0D', // app background
+  surface: '#151518', // cards, sheets, chips-on-card
+  surfaceAlt: '#101012', // completed-task cards
+  surfaceAltBorder: '#1C1C20',
+  chip: '#202024', // small pill backgrounds / secondary buttons
+  chipBorder: '#33333A',
+
+  /** Borders */
+  border: '#29292E',
+  borderStrong: '#33333A',
+  borderFaint: '#202024',
+  overdueBorder: '#5C2323',
+
+  /** Text */
+  text: '#F5F5F5',
+  textSecondary: '#D8D8DC',
+  textMuted: '#9A9AA1',
+  textFaint: '#6E6E76',
+  textFainter: '#4A4A50',
+  textGhost: '#3E3E44',
+
+  /** Red accent family */
+  accent: '#E53935',
+  accentLight: '#F5675E',
+  accentFab: '#B23A34',
+  accentDeep: '#8F1D24',
+  accentSoftText: '#F09A97',
+  accentPaleText: '#F5CFCD',
+  logout: '#E5645D',
+
+  /** Priority colors */
+  priorityUrgent: '#E53935',
+  priorityHigh: '#E5793A',
+  priorityMedium: '#C9A227',
+  priorityLow: '#5A5A62',
+
+  /** Badge accents */
+  badgeStreak: '#E5793A',
+  badgeGold: '#C9A227',
+  badgePurple: '#8B6DE0',
+  badgeGreen: '#5FA07A',
+
+  white: '#F5F5F5',
 } as const;
+
+/** Backwards-compatible alias used across the codebase. */
+export const colors = {
+  background: palette.bg,
+  surface: palette.surface,
+  border: palette.border,
+  borderStrong: palette.borderStrong,
+  text: palette.text,
+  textMuted: palette.textMuted,
+  textFaint: palette.textFaint,
+  primary: palette.accent,
+  primaryText: palette.white,
+  warning: palette.priorityMedium,
+  warningSurface: 'rgba(201,162,39,0.14)',
+  warningText: palette.priorityMedium,
+  danger: palette.accent,
+} as const;
+
+/** Default category → color map (matches v5 seed state). */
+export const categoryColors: Record<string, string> = {
+  'Робота': '#7B6FA6',
+  "Здоров'я": '#5FA07A',
+  'Дім': '#4E9DA6',
+  'Особисте': '#6E8CB8',
+  'Навчання': '#A88A5C',
+};
+
+/** Swatch palette offered in the category-color editor. */
+export const categorySwatches = [
+  '#7B6FA6', '#6E8CB8', '#5FA07A', '#4E9DA6',
+  '#A88A5C', '#B07A8C', '#8C8C94', '#A0785A',
+] as const;
+
+export type Priority = 'urgent' | 'high' | 'medium' | 'low';
+
+export function priorityColor(p: Priority): string {
+  switch (p) {
+    case 'urgent': return palette.priorityUrgent;
+    case 'high': return palette.priorityHigh;
+    case 'medium': return palette.priorityMedium;
+    default: return palette.priorityLow;
+  }
+}
+
+export function priorityLabel(p: Priority): string {
+  switch (p) {
+    case 'urgent': return 'Терміновий';
+    case 'high': return 'Високий';
+    case 'medium': return 'Середній';
+    default: return 'Без пріоритету';
+  }
+}
+
+/** Convert a #rrggbb hex to an rgba() string with the given alpha. */
+export function withAlpha(hex: string, a: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
 
 export const radius = {
   sm: 8,
   md: 12,
   lg: 16,
+  xl: 24,
   pill: 999,
 } as const;
 
-/**
- * Hairline that renders as a true 1-physical-pixel line. On the 16 Pro's @3x
- * screen that is 0.333 pt — using 1 pt would look three times too heavy.
- */
+/** Hairline that renders as a true 1-physical-pixel line. */
 export const hairline = 1 / PixelRatio.get();
 
-/**
- * Extra bottom padding for content that sits above the home indicator when a
- * screen is not already wrapped in a safe-area view.
- */
+/** Extra bottom padding above the home indicator when not inside a SafeAreaView. */
 export const homeIndicatorInset = Platform.OS === 'ios' ? DEVICE.safeAreaBottom : 0;

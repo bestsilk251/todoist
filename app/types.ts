@@ -7,6 +7,9 @@ export interface ParsedTask {
   needs_confirmation: boolean;
 }
 
+/** Task priority, persisted in the `priority` column (added in 0002). */
+export type Priority = 'urgent' | 'high' | 'medium' | 'low';
+
 /** A task as stored in Postgres. */
 export interface Task {
   id: string;
@@ -20,6 +23,9 @@ export interface Task {
   needs_confirmation: boolean;
   status: 'pending' | 'done';
   source_text: string | null;
+  category: string;
+  important: boolean;
+  priority: Priority;
   created_at: string;
   updated_at: string;
 }
