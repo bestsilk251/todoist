@@ -19,15 +19,17 @@ export interface Task {
   is_all_day: boolean;
   needs_confirmation: boolean;
   status: 'pending' | 'done';
+  category: string;
+  important: boolean;
   source_text: string | null;
   created_at: string;
   updated_at: string;
 }
 
+export type TabKey = 'home' | 'list' | 'calendar' | 'profile';
+
 export type RootStackParamList = {
   Auth: undefined;
-  Capture: undefined;
-  Confirm: { tasks: ParsedTask[]; sourceText: string };
-  TaskList: undefined;
+  Main: undefined;
   Edit: { task: Task };
 };

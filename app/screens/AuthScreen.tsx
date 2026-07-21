@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSupabaseClient } from '../lib/supabase';
-import { spacing, touch, typography, colors, radius } from '../theme';
+import { colors, spacing, touch, typography, radius } from '../theme';
 
 type Mode = 'signIn' | 'signUp';
 
@@ -26,21 +26,17 @@ export default function AuthScreen() {
 
   async function handleSubmit() {
     if (!email.trim() || !password) return;
-
     setBusy(true);
     setError(null);
     setInfo(null);
-
     try {
       const client = getSupabaseClient();
       if (mode === 'signIn') {
         const { error: e } = await client.auth.signInWithPassword({ email, password });
         if (e) throw e;
-        // On success the auth listener in useAuth swaps the navigator; no nav here.
       } else {
         const { data, error: e } = await client.auth.signUp({ email, password });
         if (e) throw e;
-        // If email confirmations are on, there is no session yet.
         if (!data.session) {
           setInfo('Перевірте пошту, щоб підтвердити реєстрацію, потім увійдіть.');
           setMode('signIn');
@@ -56,11 +52,8 @@ export default function AuthScreen() {
   const isSignIn = mode === 'signIn';
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <View style={[styles.content, { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.md }]}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={[styles.content, { paddingTop: insets.top + spacing.xxl, paddingBottom: insets.bottom + spacing.lg }]}>
         <Text style={styles.title}>{isSignIn ? 'Вхід' : 'Реєстрація'}</Text>
 
         <TextInput
@@ -91,11 +84,11 @@ export default function AuthScreen() {
         <Pressable
           onPress={handleSubmit}
           disabled={busy}
-          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+          style={({ pressed }) => [styles.button, pressed && styles.pressed]}
           testID="auth-submit"
         >
           {busy ? (
-            <ActivityIndicator color={colors.primaryText} />
+            <ActivityIndicator color={colors.text} />
           ) : (
             <Text style={styles.buttonText}>{isSignIn ? 'Увійти' : 'Зареєструватися'}</Text>
           )}
@@ -120,30 +113,31 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, gap: spacing.md },
+  container: { flex: 1, backgroundColor: colors.bg },
+  content: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.xxl, gap: spacing.md },
   title: { ...typography.title, color: colors.text, marginBottom: spacing.sm },
   input: {
     minHeight: touch.inputMinHeight,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
     color: colors.text,
-    ...typography.body,
+    backgroundColor: colors.card,
+    fontSize: 16,
   },
   button: {
     height: touch.primaryButtonHeight,
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
+    backgroundColor: colors.accent,
+    borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: spacing.sm,
   },
-  buttonPressed: { opacity: 0.8 },
-  buttonText: { color: colors.primaryText, ...typography.callout, fontWeight: '600' },
+  pressed: { opacity: 0.8 },
+  buttonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
   switch: { alignItems: 'center', paddingVertical: spacing.sm, minHeight: touch.minTarget },
-  switchText: { ...typography.subhead, color: colors.primary },
-  error: { color: colors.danger, ...typography.footnote },
-  info: { color: colors.warningText, ...typography.footnote },
+  switchText: { ...typography.label, color: colors.accent },
+  error: { color: colors.accent, ...typography.small },
+  info: { color: colors.accentText, ...typography.small },
 });

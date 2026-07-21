@@ -1,11 +1,9 @@
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import CaptureScreen from './screens/CaptureScreen';
-import ConfirmScreen from './screens/ConfirmScreen';
-import TaskListScreen from './screens/TaskListScreen';
+import MainScreen from './screens/MainScreen';
 import EditTaskScreen from './screens/EditTaskScreen';
 import AuthScreen from './screens/AuthScreen';
 import { useAuth } from './lib/useAuth';
@@ -14,11 +12,18 @@ import { colors, typography } from './theme';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+const navTheme = {
+  ...DefaultTheme,
+  dark: true,
+  colors: { ...DefaultTheme.colors, background: colors.bg, card: colors.surface, text: colors.text, border: colors.border, primary: colors.accent },
+};
+
 const screenOptions = {
-  headerStyle: { backgroundColor: colors.background },
+  headerStyle: { backgroundColor: colors.surface },
   headerTitleStyle: { ...typography.heading, color: colors.text },
+  headerTintColor: colors.text,
   headerShadowVisible: false,
-  contentStyle: { backgroundColor: colors.background },
+  contentStyle: { backgroundColor: colors.bg },
 } as const;
 
 export default function App() {
@@ -26,17 +31,15 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
-        <StatusBar style="dark" />
+      <NavigationContainer theme={navTheme}>
+        <StatusBar style="light" />
         {loading ? (
           <View style={styles.splash}>
-            <ActivityIndicator color={colors.primary} />
+            <ActivityIndicator color={colors.accent} />
           </View>
         ) : session ? (
-          <Stack.Navigator initialRouteName="Capture" screenOptions={screenOptions}>
-            <Stack.Screen name="Capture" component={CaptureScreen} options={{ title: 'Нова задача' }} />
-            <Stack.Screen name="Confirm" component={ConfirmScreen} options={{ title: 'Підтвердити' }} />
-            <Stack.Screen name="TaskList" component={TaskListScreen} options={{ title: 'Мої задачі' }} />
+          <Stack.Navigator screenOptions={screenOptions}>
+            <Stack.Screen name="Main" component={MainScreen} options={{ headerShown: false }} />
             <Stack.Screen
               name="Edit"
               component={EditTaskScreen}
@@ -54,5 +57,5 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  splash: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
+  splash: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
 });

@@ -27,7 +27,7 @@ export async function deleteTask(id: string): Promise<void> {
 
 /** Editable fields of a task. Omitting a field leaves it unchanged. */
 export type TaskEdits = Partial<
-  Pick<Task, 'title' | 'description' | 'due_date' | 'due_time' | 'is_all_day'>
+  Pick<Task, 'title' | 'description' | 'due_date' | 'due_time' | 'is_all_day' | 'category' | 'important'>
 >;
 
 export async function updateTask(id: string, edits: TaskEdits): Promise<void> {
@@ -49,7 +49,26 @@ export async function restoreTask(task: Task): Promise<void> {
     is_all_day: task.is_all_day,
     needs_confirmation: task.needs_confirmation,
     status: task.status,
+    category: task.category,
+    important: task.important,
     source_text: task.source_text,
   });
+  if (error) throw error;
+}
+
+/** A parsed task plus the UI-chosen category/important, ready to insert. */
+export interface NewTaskInput {
+  title: string;
+  due_date: string | null;
+  due_time: string | null;
+  is_all_day: boolean;
+  needs_confirmation: boolean;
+  category: string;
+  important: boolean;
+  source_text: string | null;
+}
+
+export async function insertTasks(tasks: NewTaskInput[]): Promise<void> {
+  const { error } = await getSupabaseClient().from('tasks').insert(tasks);
   if (error) throw error;
 }

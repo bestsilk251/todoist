@@ -97,3 +97,10 @@ export function timeToDisplay(time: string | null | undefined): string {
   if (!time) return '';
   return time.slice(0, 5);
 }
+
+/** Adds `days` to an ISO "YYYY-MM-DD" string and returns the same format. */
+export function addDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
