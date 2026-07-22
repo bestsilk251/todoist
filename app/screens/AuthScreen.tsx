@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSupabaseClient } from '../lib/supabase';
+import { USAGE_GUIDE_PENDING_METADATA_KEY } from '../lib/usageGuide';
 import { spacing, touch, typography, colors, radius } from '../theme';
 
 type Mode = 'signIn' | 'signUp';
@@ -38,7 +39,13 @@ export default function AuthScreen() {
         if (e) throw e;
         // On success the auth listener in useAuth swaps the navigator; no nav here.
       } else {
-        const { data, error: e } = await client.auth.signUp({ email, password });
+        const { data, error: e } = await client.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { [USAGE_GUIDE_PENDING_METADATA_KEY]: true },
+          },
+        });
         if (e) throw e;
         // If email confirmations are on, there is no session yet.
         if (!data.session) {

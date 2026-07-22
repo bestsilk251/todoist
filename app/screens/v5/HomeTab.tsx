@@ -3,10 +3,11 @@ import React from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { palette, withAlpha, categoryColors } from '../../theme';
-import { formatDateLabel, dayPhrase, NOW_MINUTES } from '../../lib/v5data';
+import { formatDateLabel, dayPhrase, isTaskCurrentOrUpcoming } from '../../lib/v5data';
 import type { V5Task } from '../../lib/v5data';
 import { useV5 } from './store';
 import { ProgressBar } from './ui';
+import NearestTaskCard from './NearestTaskCard';
 import {
   ProfileIcon, MicDetailedIcon, PlusIcon, BellIcon, FlagIcon, ClockIcon,
 } from '../../components/icons';
@@ -15,6 +16,7 @@ export default function HomeTab() {
   const s = useV5();
   const cats = s.categories;
   const today = new Date();
+  const nowMinutes = today.getHours() * 60 + today.getMinutes();
   const dateLabel = formatDateLabel(today);
 
   const catColor = (name: string) => cats[name] || categoryColors[name] || palette.textFaint;
@@ -23,33 +25,36 @@ export default function HomeTab() {
     (a.dueInDays! - b.dueInDays!) || (a.time || '99:99').localeCompare(b.time || '99:99');
 
   const highPriority = s.tasks
-    .filter((t) => !t.completed && t.priority === 'high' && t.dueInDays != null)
+    .filter((t) => !t.completed && !t.cancelled && t.priority === 'high' && isTaskCurrentOrUpcoming(t, today))
     .sort((a, b) => a.dueInDays! - b.dueInDays!)[0];
   const priorityReminder = highPriority
     ? `Пріоритетна задача «${highPriority.title}» — ${dayPhrase(highPriority.dueInDays!)}`
     : null;
 
-  let nearest = s.tasks.filter((t) => !t.completed && t.dueInDays != null).sort(byDate).slice(0, 3);
+  let nearest = s.tasks.filter((t) => !t.completed && !t.cancelled && isTaskCurrentOrUpcoming(t, today)).sort(byDate).slice(0, 3);
   if (highPriority && !nearest.some((t) => t.id === highPriority.id)) {
     nearest = [...nearest.slice(0, 2), highPriority].sort(byDate);
   }
 
   const soon = s.tasks.find((t) => {
-    if (t.completed || t.dueInDays !== 0 || !t.time) return false;
+    if (t.completed || t.cancelled || t.dueInDays !== 0 || !t.time) return false;
     const [h, m] = t.time.split(':').map(Number);
-    const diff = h * 60 + m - NOW_MINUTES;
+    const diff = h * 60 + m - nowMinutes;
     return diff > 0 && diff <= 120;
   });
   let eventSoonBanner: string | null = null;
   if (soon) {
     const [h, m] = soon.time.split(':').map(Number);
-    const diff = h * 60 + m - NOW_MINUTES;
+    const diff = h * 60 + m - nowMinutes;
     const label = diff < 60 ? `${diff} хв` : `${Math.floor(diff / 60)} год ${diff % 60 ? diff % 60 + ' хв' : ''}`.trim();
     eventSoonBanner = `«${soon.title}» — через ${label}`;
   }
 
-  const completed = s.tasks.filter((t) => t.completed).length;
-  const total = s.tasks.length;
+  const mondayOffset = -((today.getDay() + 6) % 7);
+  const sundayOffset = mondayOffset + 6;
+  const weekTasks = s.tasks.filter((task) => !task.cancelled && task.dueInDays != null && task.dueInDays >= mondayOffset && task.dueInDays <= sundayOffset);
+  const completed = weekTasks.filter((task) => task.completed).length;
+  const total = weekTasks.length;
   const focused = s.quickFocused || !!s.quickText;
 
   return (
@@ -103,7 +108,7 @@ export default function HomeTab() {
           </View>
         </LinearGradient>
 
-        <ProgressBar completed={completed} total={total} />
+        <ProgressBar completed={completed} total={total} label={`${completed} з ${total} задач виконано за цей тиждень`} />
 
         <Pressable onPress={() => s.setTab('list')} style={styles.viewAll}>
           <Text style={styles.viewAllText}>Переглянути всі задачі →</Text>
@@ -111,19 +116,13 @@ export default function HomeTab() {
 
         {nearest.length > 0 ? (
           <View style={styles.nearestWrap}>
-            {nearest.map((t) => (
-              <View key={t.id} style={styles.nearestRow}>
-                <View style={[styles.nearestDot, { backgroundColor: catColor(t.category) }]} />
-                <Text style={styles.nearestTitle} numberOfLines={1}>{t.title}</Text>
-                <Text style={styles.nearestWhen}>{t.time ? `${dayPhrase(t.dueInDays!)}, ${t.time}` : dayPhrase(t.dueInDays!)}</Text>
-              </View>
-            ))}
+            {nearest.map((task) => <NearestTaskCard key={task.id} task={task} categoryColor={catColor(task.category)} />)}
           </View>
         ) : (
           <View style={styles.freeWindow}>
             <View style={styles.freeIcon}><ClockIcon size={17} color={palette.accent} /></View>
             <Text style={styles.freeText}>Знайдено вільне вікно 15:30–17:00. Запланувати задачу?</Text>
-            <Pressable onPress={s.scheduleFreeWindow} style={styles.freeBtn}>
+            <Pressable onPress={() => s.scheduleFreeWindow()} style={styles.freeBtn}>
               <Text style={styles.freeBtnText}>Запланувати</Text>
             </Pressable>
           </View>
@@ -165,13 +164,6 @@ const styles = StyleSheet.create({
   viewAll: { paddingVertical: 6, alignSelf: 'flex-start' },
   viewAllText: { color: palette.textMuted, fontSize: 13 },
   nearestWrap: { width: '100%', gap: 8 },
-  nearestRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 12,
-    backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 14,
-  },
-  nearestDot: { width: 8, height: 8, borderRadius: 4 },
-  nearestTitle: { flex: 1, fontSize: 13.5, color: palette.text },
-  nearestWhen: { fontSize: 11.5, color: palette.textMuted },
   freeWindow: {
     width: '100%', alignItems: 'center', gap: 10, paddingVertical: 16, paddingHorizontal: 14,
     backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.chipBorder, borderStyle: 'dashed', borderRadius: 16,

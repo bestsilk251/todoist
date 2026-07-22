@@ -8,15 +8,25 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Vibration } from 'react-native';
-import { seedAllDay, type V5Task, type V5AllDay, type PreviewTask } from '../../lib/v5data';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { V5Task, PreviewTask } from '../../lib/v5data';
 import { categoryColors as seedCategories } from '../../theme';
 import { getSupabaseClient } from '../../lib/supabase';
 import {
-  fetchTasks, insertTasks, setStatus, removeTask, setDueDate, parseTaskText,
+  fetchTasks, insertTasks, setStatus, removeTask, parseTaskText,
   rowToV5, previewFromParsed, previewToInsert, isoOf, isoFromOffset,
+  updateTaskFields as persistTaskFields,
 } from '../../lib/tasksRepo';
+import type { EditableTaskFields } from '../../lib/tasksRepo';
+import { clockToMinutes, DEFAULT_TIMED_TASK_DURATION_MINUTES, durationBetweenClocks, extractScheduleFromText } from '../../lib/calendarMath';
+import {
+  hasSeenUsageGuide,
+  markUsageGuideSeen,
+  shouldAutoOpenUsageGuide,
+  USAGE_GUIDE_PENDING_METADATA_KEY,
+} from '../../lib/usageGuide';
 
-export type TabKey = 'home' | 'list' | 'calendar' | 'profile';
+export type TabKey = 'home' | 'list' | 'calendar' | 'analytics' | 'profile';
 export type VoiceState = 'idle' | 'recording' | 'processing';
 export type CalendarView = 'day' | 'week' | 'month';
 
@@ -37,8 +47,11 @@ interface V5State {
   timePickerId: string | null;
   timePickerHour: number;
   timePickerMinute: number;
+  timePickerTarget: 'preview' | 'task-start' | 'task-end' | null;
   categoryEditorOpen: boolean;
   showCompleted: boolean;
+  showOverdue: boolean;
+  showCancelled: boolean;
   listAddMenuOpen: boolean;
   listAddMode: 'text' | null;
   listSearchOpen: boolean;
@@ -51,10 +64,16 @@ interface V5State {
   userInitials: string;
   taskDetailId: string | null;
   shareSheetOpen: boolean;
+  shareSuccessName: string | null;
+  sharedTaskCount: number;
+  achievementsOpen: boolean;
+  securityInfoOpen: boolean;
+  aboutAppOpen: boolean;
+  usageGuideOpen: boolean;
   calendarView: CalendarView;
   calendarDayOffset: number;
-  calendarAllDay: V5AllDay[];
   openSwipeId: string | null;
+  undoTaskId: string | null;
 }
 
 const initialState: V5State = {
@@ -74,8 +93,11 @@ const initialState: V5State = {
   timePickerId: null,
   timePickerHour: 9,
   timePickerMinute: 0,
+  timePickerTarget: null,
   categoryEditorOpen: false,
   showCompleted: false,
+  showOverdue: false,
+  showCancelled: false,
   listAddMenuOpen: false,
   listAddMode: null,
   listSearchOpen: false,
@@ -88,16 +110,28 @@ const initialState: V5State = {
   userInitials: '—',
   taskDetailId: null,
   shareSheetOpen: false,
+  shareSuccessName: null,
+  sharedTaskCount: 0,
+  achievementsOpen: false,
+  securityInfoOpen: false,
+  aboutAppOpen: false,
+  usageGuideOpen: false,
   calendarView: 'day',
   calendarDayOffset: 0,
-  calendarAllDay: seedAllDay,
   openSwipeId: null,
+  undoTaskId: null,
 };
-
-const PARTIAL_PHRASES = ['', 'Зустріч', 'Зустріч із командою', 'Зустріч із командою завтра', 'Зустріч із командою завтра ввечері'];
 
 function buzz(pattern?: number | number[]) {
   try { Vibration.vibrate(pattern ?? 15); } catch { /* no-op on web */ }
+}
+
+function isOverdueNow(task: V5Task, now = new Date()): boolean {
+  if (task.completed || task.cancelled || task.dueInDays == null) return false;
+  if (task.dueInDays < 0) return true;
+  if (task.dueInDays > 0 || !task.time) return false;
+  const endMinutes = clockToMinutes(task.time) + (task.durationMinutes ?? DEFAULT_TIMED_TASK_DURATION_MINUTES);
+  return endMinutes < now.getHours() * 60 + now.getMinutes();
 }
 
 function getSpeechRecognition(): any | null {
@@ -111,7 +145,8 @@ export interface V5Store extends V5State {
   onSignOut?: () => void;
   toggleComplete: (id: string) => void;
   deleteTask: (id: string) => void;
-  postponeTask: (id: string) => void;
+  cancelTask: (id: string) => void;
+  restoreTask: (id: string) => void;
   setOpenSwipe: (id: string | null) => void;
   setTab: (t: TabKey) => void;
   submitQuick: () => void;
@@ -119,7 +154,7 @@ export interface V5Store extends V5State {
   togglePauseVoice: () => void;
   cancelVoice: () => void;
   finishVoice: () => void;
-  scheduleFreeWindow: () => void;
+  scheduleFreeWindow: (iso?: string, time?: string, duration?: string) => void;
   deletePreviewTask: (id: string) => void;
   resolvePreviewTime: (id: string) => void;
   cancelPreview: () => void;
@@ -130,17 +165,22 @@ export interface V5Store extends V5State {
   togglePreviewImportant: (id: string) => void;
   confirmSave: () => void;
   openTimePicker: (id: string) => void;
+  openTaskTimePicker: (id: string) => void;
+  openTaskEndTimePicker: (id: string) => void;
   closeTimePicker: () => void;
   setTimePickerHour: (h: number) => void;
   setTimePickerMinute: (m: number) => void;
   applyTimePreset: (h: number, m: number) => void;
   confirmTimePicker: () => void;
   toggleShowCompleted: () => void;
+  toggleShowOverdue: () => void;
+  toggleShowCancelled: () => void;
   handleFabClick: () => void;
   chooseListText: () => void;
   chooseListMic: () => void;
   closeListAddMenu: () => void;
   toggleListSearch: () => void;
+  closeListSearch: () => void;
   setListSearch: (q: string) => void;
   openAvatarMenu: () => void;
   closeAvatarMenu: () => void;
@@ -151,9 +191,23 @@ export interface V5Store extends V5State {
   closeTaskDetail: () => void;
   openShareSheet: () => void;
   closeShareSheet: () => void;
+  shareTaskWithFriend: (name: string) => void;
+  updateTask: (id: string, fields: EditableTaskFields) => void;
+  openAchievements: () => void;
+  closeAchievements: () => void;
+  openSecurityInfo: () => void;
+  closeSecurityInfo: () => void;
+  openAboutApp: () => void;
+  closeAboutApp: () => void;
+  openUsageGuide: () => void;
+  closeUsageGuide: () => void;
   openCategoryEditor: () => void;
   closeCategoryEditor: () => void;
   setCategoryColor: (name: string, color: string) => void;
+  createCategory: (name: string, color: string) => boolean;
+  reorderTaskToTop: (id: string) => void;
+  undoLastComplete: () => void;
+  dismissUndo: () => void;
   goToToday: () => void;
   setCalendarView: (v: CalendarView) => void;
   setCalendarDay: (offset: number) => void;
@@ -164,9 +218,19 @@ export interface V5Store extends V5State {
 
 const Ctx = createContext<V5Store | null>(null);
 
-export interface UserProfile { name: string; fullName: string; email: string; initials: string }
+export interface UserProfile {
+  id?: string;
+  name: string;
+  fullName: string;
+  email: string;
+  initials: string;
+  usageGuidePending?: boolean;
+}
 
 export function V5Provider({ children, onSignOut, profile }: { children: React.ReactNode; onSignOut?: () => void; profile?: UserProfile }) {
+  const guideIdentity = profile?.id || profile?.email || 'local';
+  const categoryStorageKey = `voice-todo:category-colors:${profile?.email || 'local'}`;
+  const taskOrderStorageKey = `voice-todo:task-order:${profile?.email || 'local'}`;
   const [state, setState] = useState<V5State>(() =>
     profile
       ? { ...initialState, userName: profile.name, userFullName: profile.fullName, userEmail: profile.email, userInitials: profile.initials }
@@ -179,19 +243,67 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef('');
   const finishedRef = useRef(false);
+  const silenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearSilenceTimer = useCallback(() => {
+    if (silenceTimer.current) clearTimeout(silenceTimer.current);
+    silenceTimer.current = null;
+  }, []);
+
+  const startSilenceTimer = useCallback((onSilence: () => void) => {
+    clearSilenceTimer();
+    silenceTimer.current = setTimeout(() => {
+      if (!finishedRef.current && !pausedRef.current) onSilence();
+    }, 5000);
+  }, [clearSilenceTimer]);
 
   const set: V5Store['set'] = (patch) =>
     setState((s) => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }));
 
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(categoryStorageKey).then((raw) => {
+      if (!active || !raw) return;
+      try {
+        const stored = JSON.parse(raw) as Record<string, unknown>;
+        const valid: Record<string, string> = {};
+        Object.entries(stored).forEach(([name, color]) => {
+          if (name && typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)) valid[name] = color;
+        });
+        setState((current) => ({ ...current, categories: { ...current.categories, ...valid } }));
+      } catch { /* ignore malformed local preferences */ }
+    }).catch(() => { /* keep the default palette */ });
+    return () => { active = false; };
+  }, [categoryStorageKey]);
+
+  useEffect(() => {
+    if (!profile?.usageGuidePending) return undefined;
+    let active = true;
+    hasSeenUsageGuide(guideIdentity)
+      .then((seen) => {
+        if (active && shouldAutoOpenUsageGuide(true, seen)) {
+          setState((current) => ({ ...current, usageGuideOpen: true }));
+        }
+      })
+      .catch(() => { /* onboarding remains available from the profile */ });
+    return () => { active = false; };
+  }, [guideIdentity, profile?.usageGuidePending]);
+
   const reload = useCallback(async () => {
     try {
-      const rows = await fetchTasks();
+      const [rows, storedOrder] = await Promise.all([fetchTasks(), AsyncStorage.getItem(taskOrderStorageKey)]);
       const today = new Date();
-      setState((s) => ({ ...s, tasks: rows.map((r) => rowToV5(r, today)), loading: false }));
+      const tasks = rows.map((r) => rowToV5(r, today));
+      let order: string[] = [];
+      try { order = storedOrder ? JSON.parse(storedOrder) as string[] : []; } catch { order = []; }
+      const positions = new Map(order.map((id, index) => [id, index]));
+      tasks.sort((a, b) => (positions.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (positions.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+      setState((s) => ({ ...s, tasks, loading: false }));
     } catch {
       setState((s) => ({ ...s, loading: false }));
     }
-  }, []);
+  }, [taskOrderStorageKey]);
 
   // Initial load + realtime subscription.
   useEffect(() => {
@@ -205,16 +317,37 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
     } catch { /* ignore */ }
     return () => {
       if (recordTimer.current) clearInterval(recordTimer.current);
+      if (undoTimer.current) clearTimeout(undoTimer.current);
+      clearSilenceTimer();
       try { recognitionRef.current?.abort(); } catch { /* ignore */ }
       try { if (channel) getSupabaseClient().removeChannel(channel); } catch { /* ignore */ }
     };
-  }, [reload]);
+  }, [reload, clearSilenceTimer]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return undefined;
+    const win = globalThis as any;
+    if (win.location?.pathname !== '/') {
+      win.history?.replaceState?.(null, '', '/');
+    }
+    return undefined;
+  }, []);
 
   const openPreviewFromText = useCallback(async (text: string) => {
     const parsed = await parseTaskText(text);
+    const inferred = extractScheduleFromText(text);
     const items: PreviewTask[] = parsed.length
       ? parsed.map((p) => previewFromParsed(p, 'p' + nextPreviewId.current++))
-      : [{ id: 'p' + nextPreviewId.current++, title: text, iso: isoOf(new Date()), time: '', duration: '', category: 'Особисте', important: false, needsConfirmation: false }];
+      : [{
+          id: 'p' + nextPreviewId.current++,
+          title: text,
+          iso: isoOf(new Date()),
+          time: inferred?.startTime ?? '',
+          duration: inferred ? `${inferred.durationMinutes} хв` : '',
+          category: 'Особисте',
+          important: false,
+          needsConfirmation: false,
+        }];
     setState((s) => ({ ...s, voiceState: 'idle', previewTasks: items, previewOpen: true }));
   }, []);
 
@@ -227,26 +360,41 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       toggleComplete: (id) => {
         const t = state.tasks.find((x) => x.id === id);
         const nextDone = t ? !t.completed : true;
+        const completedAt = nextDone ? new Date().toISOString() : null;
         setState((s) => ({
           ...s,
-          tasks: s.tasks.map((x) => (x.id === id ? { ...x, completed: nextDone, overdue: nextDone ? false : x.overdue } : x)),
+          tasks: s.tasks.map((x) => (x.id === id ? { ...x, completed: nextDone, cancelled: false, completedAt, overdue: nextDone ? false : isOverdueNow({ ...x, completed: false, cancelled: false }) } : x)),
           openSwipeId: s.openSwipeId === id ? null : s.openSwipeId,
+          undoTaskId: nextDone ? id : (s.undoTaskId === id ? null : s.undoTaskId),
         }));
+        if (undoTimer.current) clearTimeout(undoTimer.current);
+        if (nextDone) undoTimer.current = setTimeout(() => set({ undoTaskId: null }), 5000);
         setStatus(id, nextDone ? 'done' : 'pending').catch(() => { reload(); });
       },
       deleteTask: (id) => {
         setState((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id), openSwipeId: null }));
         removeTask(id).catch(() => { reload(); });
       },
-      postponeTask: (id) => {
-        const t = state.tasks.find((x) => x.id === id);
-        const next = (t?.dueInDays ?? 0) + 1;
+      cancelTask: (id) => {
         setState((s) => ({
           ...s,
-          tasks: s.tasks.map((x) => (x.id === id ? { ...x, dueInDays: next, overdue: false } : x)),
+          tasks: s.tasks.map((x) => (x.id === id ? { ...x, completed: false, cancelled: true, completedAt: null, overdue: false } : x)),
           openSwipeId: null,
+          undoTaskId: s.undoTaskId === id ? null : s.undoTaskId,
         }));
-        setDueDate(id, isoFromOffset(next)).catch(() => { reload(); });
+        buzz(20);
+        setStatus(id, 'cancelled').catch(() => { reload(); });
+      },
+      restoreTask: (id) => {
+        setState((s) => ({
+          ...s,
+          tasks: s.tasks.map((x) => {
+            if (x.id !== id) return x;
+            const restored = { ...x, completed: false, cancelled: false, completedAt: null };
+            return { ...restored, overdue: isOverdueNow(restored) };
+          }),
+        }));
+        setStatus(id, 'pending').catch(() => { reload(); });
       },
       setOpenSwipe: (id) => set({ openSwipeId: id }),
       setTab: (t) => set({ activeTab: t }),
@@ -264,6 +412,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
         pausedRef.current = false;
         finishedRef.current = false;
         transcriptRef.current = '';
+        clearSilenceTimer();
         if (recordTimer.current) clearInterval(recordTimer.current);
         set({ voiceState: 'recording', recordSeconds: 0, partialText: '', isPaused: false });
 
@@ -283,7 +432,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
                 else interim += r[0].transcript;
               }
               transcriptRef.current = (finalText + interim).trim();
-              set({ partialText: transcriptRef.current });
+              startSilenceTimer(() => api.finishVoice());
             };
             rec.onerror = () => { /* keep overlay; user decides */ };
             rec.onend = () => { if (!finishedRef.current && !pausedRef.current) { try { rec.start(); } catch { /* ignore */ } } };
@@ -292,25 +441,30 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
           } catch { recognitionRef.current = null; }
         }
 
+        startSilenceTimer(() => api.finishVoice());
+
         recordTimer.current = setInterval(() => {
           if (pausedRef.current) return;
           recordSecondsRef.current += 1;
-          const patch: Partial<V5State> = { recordSeconds: recordSecondsRef.current };
-          if (!recognitionRef.current) {
-            const idx = Math.min(PARTIAL_PHRASES.length - 1, Math.floor(recordSecondsRef.current / 1.6));
-            patch.partialText = PARTIAL_PHRASES[idx];
-          }
-          set(patch);
+          set({ recordSeconds: recordSecondsRef.current });
         }, 1000);
       },
       togglePauseVoice: () => {
-        pausedRef.current = !pausedRef.current;
-        if (pausedRef.current) { try { recognitionRef.current?.stop(); } catch { /* ignore */ } }
-        set((s) => ({ isPaused: !s.isPaused }));
+        const nextPaused = !pausedRef.current;
+        pausedRef.current = nextPaused;
+        if (nextPaused) {
+          clearSilenceTimer();
+          try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+        } else {
+          try { recognitionRef.current?.start(); } catch { /* ignore */ }
+          startSilenceTimer(() => api.finishVoice());
+        }
+        set({ isPaused: nextPaused });
       },
       cancelVoice: () => {
         finishedRef.current = true;
         if (recordTimer.current) clearInterval(recordTimer.current);
+        clearSilenceTimer();
         try { recognitionRef.current?.abort(); } catch { /* ignore */ }
         recognitionRef.current = null;
         buzz(15);
@@ -319,6 +473,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       finishVoice: () => {
         finishedRef.current = true;
         if (recordTimer.current) clearInterval(recordTimer.current);
+        clearSilenceTimer();
         const hadRecognition = !!recognitionRef.current;
         try { recognitionRef.current?.stop(); } catch { /* ignore */ }
         recognitionRef.current = null;
@@ -341,8 +496,8 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
           }, 1100);
         }
       },
-      scheduleFreeWindow: () => {
-        const pt: PreviewTask = { id: 'p' + nextPreviewId.current++, title: 'Нова задача', iso: isoOf(new Date()), time: '15:30', duration: '1 год 30 хв', category: 'Особисте', important: false, needsConfirmation: false };
+      scheduleFreeWindow: (iso = isoOf(new Date()), time = '15:30', duration = '1 год 30 хв') => {
+        const pt: PreviewTask = { id: 'p' + nextPreviewId.current++, title: 'Нова задача', iso, time, duration, category: 'Особисте', important: false, needsConfirmation: false };
         set({ previewTasks: [pt], previewOpen: true });
       },
 
@@ -369,27 +524,84 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       confirmSave: () => {
         const payloads = state.previewTasks.map(previewToInsert);
         set({ previewOpen: false, previewTasks: [], editingPreviewId: null });
-        insertTasks(payloads).then(() => reload()).catch(() => { reload(); });
+        insertTasks(payloads)
+          .then((rows) => {
+            if (rows.length === 0) { reload(); return; }
+            const now = new Date();
+            set((current) => {
+              const insertedIds = new Set(rows.map((row) => row.id));
+              return {
+                tasks: [
+                  ...current.tasks.filter((task) => !insertedIds.has(task.id)),
+                  ...rows.map((row) => rowToV5(row, now)),
+                ],
+              };
+            });
+          })
+          .catch(() => { reload(); });
       },
 
       openTimePicker: (id) => {
         const p = state.previewTasks.find((t) => t.id === id);
         const [h, m] = p && p.time ? p.time.split(':').map(Number) : [9, 0];
-        set({ timePickerId: id, timePickerHour: h, timePickerMinute: m });
+        set({ timePickerId: id, timePickerTarget: 'preview', timePickerHour: h, timePickerMinute: m });
       },
-      closeTimePicker: () => set({ timePickerId: null }),
+      openTaskTimePicker: (id) => {
+        const task = state.tasks.find((item) => item.id === id);
+        const now = new Date();
+        const [h, m] = task?.time
+          ? task.time.split(':').map(Number)
+          : [now.getHours(), Math.floor(now.getMinutes() / 5) * 5];
+        set({ timePickerId: id, timePickerTarget: 'task-start', timePickerHour: h, timePickerMinute: m });
+      },
+      openTaskEndTimePicker: (id) => {
+        const task = state.tasks.find((item) => item.id === id);
+        if (!task?.time) return;
+        const [startHour, startMinute] = task.time.split(':').map(Number);
+        const endMinutes = (startHour * 60 + startMinute + (task.durationMinutes ?? DEFAULT_TIMED_TASK_DURATION_MINUTES)) % (24 * 60);
+        set({
+          timePickerId: id,
+          timePickerTarget: 'task-end',
+          timePickerHour: Math.floor(endMinutes / 60),
+          timePickerMinute: endMinutes % 60,
+        });
+      },
+      closeTimePicker: () => set({ timePickerId: null, timePickerTarget: null }),
       setTimePickerHour: (h) => set({ timePickerHour: ((h % 24) + 24) % 24 }),
       setTimePickerMinute: (m) => set({ timePickerMinute: ((m % 60) + 60) % 60 }),
       applyTimePreset: (h, m) => set({ timePickerHour: h, timePickerMinute: m }),
       confirmTimePicker: () => {
-        setState((s) => {
-          const id = s.timePickerId;
-          const time = `${String(s.timePickerHour).padStart(2, '0')}:${String(s.timePickerMinute).padStart(2, '0')}`;
-          return { ...s, previewTasks: s.previewTasks.map((p) => (p.id === id ? { ...p, time, needsConfirmation: false } : p)), timePickerId: null };
-        });
+        const id = state.timePickerId;
+        if (!id) return;
+        const time = `${String(state.timePickerHour).padStart(2, '0')}:${String(state.timePickerMinute).padStart(2, '0')}`;
+        if (state.timePickerTarget === 'task-start') {
+          api.updateTask(id, { time });
+          set({ timePickerId: null, timePickerTarget: null });
+          return;
+        }
+        if (state.timePickerTarget === 'task-end') {
+          const task = state.tasks.find((item) => item.id === id);
+          if (!task?.time) return;
+          const durationMinutes = durationBetweenClocks(task.time, time);
+          api.updateTask(id, { durationMinutes });
+          set({ timePickerId: null, timePickerTarget: null });
+          return;
+        }
+        set((current) => ({
+          previewTasks: current.previewTasks.map((p) => (p.id === id ? {
+            ...p,
+            time,
+            duration: p.duration || '1 год',
+            needsConfirmation: false,
+          } : p)),
+          timePickerId: null,
+          timePickerTarget: null,
+        }));
       },
 
       toggleShowCompleted: () => set((s) => ({ showCompleted: !s.showCompleted })),
+      toggleShowOverdue: () => set((s) => ({ showOverdue: !s.showOverdue })),
+      toggleShowCancelled: () => set((s) => ({ showCancelled: !s.showCancelled })),
       handleFabClick: () => {
         if (state.listAddMode === 'text') { set({ listAddMode: null }); return; }
         set((s) => ({ listAddMenuOpen: !s.listAddMenuOpen }));
@@ -398,6 +610,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       chooseListMic: () => { set({ listAddMenuOpen: false, listAddMode: null }); api.openMic(); },
       closeListAddMenu: () => set({ listAddMenuOpen: false }),
       toggleListSearch: () => set((s) => ({ listSearchOpen: !s.listSearchOpen, listSearchQuery: s.listSearchOpen ? '' : s.listSearchQuery })),
+      closeListSearch: () => set({ listSearchOpen: false, listSearchQuery: '' }),
       setListSearch: (q) => set({ listSearchQuery: q }),
 
       openAvatarMenu: () => set({ avatarMenuOpen: true }),
@@ -407,13 +620,91 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       confirmLogout: () => { set({ logoutConfirmOpen: false, activeTab: 'home' }); onSignOut?.(); },
       openTaskDetail: (id) => set({ taskDetailId: id, shareSheetOpen: false }),
       closeTaskDetail: () => set({ taskDetailId: null, shareSheetOpen: false }),
-      openShareSheet: () => set({ shareSheetOpen: true }),
-      closeShareSheet: () => set({ shareSheetOpen: false }),
+      openShareSheet: () => set({ shareSheetOpen: true, shareSuccessName: null }),
+      closeShareSheet: () => set({ shareSheetOpen: false, shareSuccessName: null }),
+      shareTaskWithFriend: (name) => set((current) => ({
+        sharedTaskCount: current.sharedTaskCount + 1,
+        shareSuccessName: name,
+      })),
+      updateTask: (id, fields) => {
+        const currentTask = state.tasks.find((task) => task.id === id);
+        const normalizedFields: EditableTaskFields = fields.time && fields.durationMinutes === undefined && currentTask?.durationMinutes == null
+          ? { ...fields, durationMinutes: DEFAULT_TIMED_TASK_DURATION_MINUTES }
+          : fields;
+        setState((current) => ({
+          ...current,
+          tasks: current.tasks.map((task) => task.id === id ? { ...task, ...normalizedFields } : task),
+        }));
+        persistTaskFields(id, normalizedFields).catch(() => { reload(); });
+      },
+      openAchievements: () => set({ achievementsOpen: true }),
+      closeAchievements: () => set({ achievementsOpen: false }),
+      openSecurityInfo: () => set({ securityInfoOpen: true }),
+      closeSecurityInfo: () => set({ securityInfoOpen: false }),
+      openAboutApp: () => set({ aboutAppOpen: true }),
+      closeAboutApp: () => set({ aboutAppOpen: false }),
+      openUsageGuide: () => set({ usageGuideOpen: true }),
+      closeUsageGuide: () => {
+        set({ usageGuideOpen: false });
+        markUsageGuideSeen(guideIdentity).catch(() => { /* do not block closing the guide */ });
+        if (profile?.usageGuidePending) {
+          getSupabaseClient().auth.updateUser({
+            data: { [USAGE_GUIDE_PENDING_METADATA_KEY]: false },
+          }).catch(() => { /* local persistence still prevents another display on this device */ });
+        }
+      },
       openCategoryEditor: () => set({ categoryEditorOpen: true }),
       closeCategoryEditor: () => set({ categoryEditorOpen: false }),
-      setCategoryColor: (name, color) => set((s) => ({ categories: { ...s.categories, [name]: color } })),
+      setCategoryColor: (name, color) => {
+        setState((current) => {
+          const categories = { ...current.categories, [name]: color };
+          AsyncStorage.setItem(categoryStorageKey, JSON.stringify(categories)).catch(() => { /* keep the in-memory choice */ });
+          return { ...current, categories };
+        });
+      },
+      createCategory: (rawName, color) => {
+        const name = rawName.trim();
+        if (!name || state.categories[name]) return false;
+        setState((current) => {
+          const categories = { ...current.categories, [name]: color };
+          AsyncStorage.setItem(categoryStorageKey, JSON.stringify(categories)).catch(() => { /* keep local state */ });
+          return { ...current, categories };
+        });
+        return true;
+      },
+      reorderTaskToTop: (id) => {
+        setState((current) => {
+          const task = current.tasks.find((item) => item.id === id);
+          if (!task) return current;
+          const tasks = [task, ...current.tasks.filter((item) => item.id !== id)];
+          AsyncStorage.setItem(taskOrderStorageKey, JSON.stringify(tasks.map((item) => item.id))).catch(() => { /* keep local order */ });
+          return { ...current, tasks };
+        });
+        buzz(20);
+      },
+      undoLastComplete: () => {
+        const id = state.undoTaskId;
+        if (!id) return;
+        if (undoTimer.current) clearTimeout(undoTimer.current);
+        setState((current) => ({
+          ...current,
+          undoTaskId: null,
+          tasks: current.tasks.map((task) => task.id === id ? {
+            ...task,
+            completed: false,
+            cancelled: false,
+            completedAt: null,
+            overdue: isOverdueNow({ ...task, completed: false, cancelled: false }),
+          } : task),
+        }));
+        setStatus(id, 'pending').catch(() => { reload(); });
+      },
+      dismissUndo: () => {
+        if (undoTimer.current) clearTimeout(undoTimer.current);
+        set({ undoTaskId: null });
+      },
 
-      goToToday: () => set({ calendarDayOffset: 0 }),
+      goToToday: () => set({ calendarDayOffset: 0, calendarView: 'day' }),
       setCalendarView: (v) => set({ calendarView: v }),
       setCalendarDay: (offset) => set({ calendarDayOffset: offset }),
       prevDay: () => set((s) => ({ calendarDayOffset: s.calendarDayOffset - 1 })),
@@ -422,7 +713,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
     };
     return api;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, onSignOut, reload, openPreviewFromText]);
+  }, [state, onSignOut, reload, openPreviewFromText, clearSilenceTimer, startSilenceTimer, categoryStorageKey, taskOrderStorageKey, guideIdentity, profile?.usageGuidePending]);
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

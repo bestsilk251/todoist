@@ -42,6 +42,7 @@ export async function handleParseTask(
           time: null,
           is_all_day: true,
           needs_confirmation: true,
+          duration_minutes: null,
         },
       ],
     };

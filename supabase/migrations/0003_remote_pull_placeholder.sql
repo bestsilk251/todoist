@@ -1,0 +1,3 @@
+-- Placeholder for the migration-history entry created by `supabase db pull`.
+-- The analytics schema was not executed for that entry; its real migration is
+-- 20260721210000_add_analytics.sql.

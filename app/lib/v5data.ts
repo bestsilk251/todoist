@@ -5,6 +5,7 @@
  * satisfy the same shape.
  */
 import type { Priority } from '../theme';
+import { DEFAULT_TIMED_TASK_DURATION_MINUTES } from './calendarMath';
 
 export interface V5Task {
   id: string;
@@ -14,30 +15,13 @@ export interface V5Task {
   category: string;
   priority: Priority;
   completed: boolean;
+  cancelled: boolean;
   overdue: boolean;
   repeat: boolean;
   hasSubtasks: boolean;
   subtaskCount: number;
-}
-
-export interface V5AllDay {
-  id: string;
-  title: string;
-  category: string;
-  completed: boolean;
-  dueInDays: number;
-}
-
-export interface V5Event {
-  id: number;
-  start: string;
-  end: string;
-  title: string;
-  category: string;
-  dueInDays: number;
-  flag?: boolean;
-  video?: boolean;
-  attachment?: boolean;
+  durationMinutes: number | null;
+  completedAt: string | null;
 }
 
 export interface PreviewTask {
@@ -51,23 +35,29 @@ export interface PreviewTask {
   needsConfirmation: boolean;
 }
 
-export const seedAllDay: V5AllDay[] = [
-  { id: 'a1', title: 'Купити ліки', category: 'Особисте', completed: false, dueInDays: 0 },
-  { id: 'a2', title: 'Відправити документи', category: 'Робота', completed: false, dueInDays: 0 },
-];
+export function isTaskCurrentOrUpcoming(task: V5Task, now = new Date()): boolean {
+  if (task.completed || task.cancelled) return false;
+  if (task.dueInDays == null || task.dueInDays < 0) return false;
+  if (task.dueInDays > 0 || !task.time) return true;
+  const [hours, minutes] = task.time.split(':').map(Number);
+  const startMinutes = hours * 60 + minutes;
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const endMinutes = startMinutes + (task.durationMinutes ?? DEFAULT_TIMED_TASK_DURATION_MINUTES);
+  return endMinutes >= currentMinutes;
+}
 
-export const seedEvents: V5Event[] = [
-  { id: 1, start: '09:00', end: '10:00', title: 'Ранкове тренування', category: "Здоров'я", flag: true, dueInDays: 0 },
-  { id: 2, start: '10:30', end: '11:00', title: 'Відповісти на листи', category: 'Робота', dueInDays: 0 },
-  { id: 3, start: '12:00', end: '13:00', title: 'Зустріч із командою', category: 'Робота', video: true, dueInDays: 0 },
-  { id: 4, start: '17:00', end: '18:00', title: 'Робота над презентацією', category: 'Робота', attachment: true, dueInDays: 0 },
-  { id: 5, start: '09:30', end: '10:30', title: 'Дзвінок із клієнтом', category: 'Робота', dueInDays: 1 },
-  { id: 6, start: '13:00', end: '14:00', title: 'Обід із другом', category: 'Особисте', dueInDays: 1 },
-  { id: 7, start: '11:00', end: '12:00', title: 'Йога', category: "Здоров'я", dueInDays: 2 },
-];
+/** Chronological order for task lists: date first, then timed tasks, then all-day tasks. */
+export function compareTasksChronologically(a: V5Task, b: V5Task): number {
+  const aDay = a.dueInDays ?? Number.MAX_SAFE_INTEGER;
+  const bDay = b.dueInDays ?? Number.MAX_SAFE_INTEGER;
+  if (aDay !== bDay) return aDay - bDay;
 
-/** The mock "current minute of the day" the design uses for the now-line. */
-export const NOW_MINUTES = 13 * 60 + 45;
+  const aTime = a.time || '24:00';
+  const bTime = b.time || '24:00';
+  const timeOrder = aTime.localeCompare(bTime);
+  if (timeOrder !== 0) return timeOrder;
+  return a.title.localeCompare(b.title, 'uk');
+}
 
 export const weekdaysFull = ['неділя', 'понеділок', 'вівторок', 'середа', 'четвер', "п'ятниця", 'субота'];
 export const weekShort = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'];

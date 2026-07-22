@@ -7,6 +7,11 @@ import { useV5 } from './store';
 export default function TimePicker() {
   const s = useV5();
   if (s.timePickerId == null) return null;
+  const title = s.timePickerTarget === 'task-end'
+    ? 'Час завершення'
+    : s.timePickerTarget === 'task-start'
+      ? 'Час початку'
+      : 'Оберіть час';
 
   const hourRows = [-2, -1, 0, 1, 2].map((off) => {
     const val = (((s.timePickerHour + off) % 24) + 24) % 24;
@@ -49,7 +54,7 @@ export default function TimePicker() {
       <Pressable onPress={() => {}} style={styles.sheet}>
         <View style={styles.grabber} />
         <View style={styles.headBlock}>
-          <Text style={styles.title}>Оберіть час</Text>
+          <Text style={styles.title}>{title}</Text>
           <Text style={styles.bigTime}>{String(s.timePickerHour).padStart(2, '0')}:{String(s.timePickerMinute).padStart(2, '0')}</Text>
         </View>
 

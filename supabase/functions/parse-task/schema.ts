@@ -6,6 +6,7 @@ const TaskSchema = z.object({
   time: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
   is_all_day: z.boolean(),
   needs_confirmation: z.boolean(),
+  duration_minutes: z.number().int().positive().max(1440).nullable().default(null),
 });
 
 const TaskListSchema = z.array(TaskSchema);

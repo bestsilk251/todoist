@@ -3,53 +3,67 @@
 import React from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { palette, withAlpha } from '../../theme';
-import { formatDateLabel } from '../../lib/v5data';
+import { compareTasksChronologically, formatDateLabel } from '../../lib/v5data';
 import type { V5Task } from '../../lib/v5data';
 import { useV5 } from './store';
-import { ProgressBar, CategoryTag } from './ui';
+import { ProgressBar, CategoryTag, ScreenHeader } from './ui';
 import TaskCard from './TaskCard';
 import { ListIcon, SearchIcon, FunnelIcon, MicSimpleIcon, TextLinesIcon, PlusIcon } from '../../components/icons';
+import { matchesTaskSearch } from '../../lib/taskSearch';
+import { isTaskInListSection } from '../../lib/taskSelectors';
 
 export default function ListTab() {
   const s = useV5();
-  const q = s.listSearchQuery.trim().toLowerCase();
-  const match = (t: V5Task) => !q || t.title.toLowerCase().includes(q);
+  const match = (task: V5Task) => matchesTaskSearch(task, s.listSearchQuery);
 
   const groupOf = (d: number) => (d === 0 ? 'today' : d === 1 ? 'tomorrow' : 'later');
   const labels: Record<string, string> = { today: 'Сьогодні', tomorrow: 'Завтра', later: 'Пізніше' };
-  const groups = (['today', 'tomorrow', 'later'] as const)
+  const datedGroups = (['today', 'tomorrow', 'later'] as const)
     .map((key) => ({
       key,
       label: labels[key],
-      tasks: s.tasks.filter((t) => !t.completed && !t.overdue && t.dueInDays != null && groupOf(t.dueInDays) === key && match(t)),
+      tasks: s.tasks
+        .filter((t) => isTaskInListSection(t, 'active') && t.dueInDays != null && groupOf(t.dueInDays) === key && match(t))
+        .sort(compareTasksChronologically),
     }))
     .filter((g) => g.tasks.length > 0);
+  const noDateTasks = s.tasks
+    .filter((t) => isTaskInListSection(t, 'active') && t.dueInDays == null && match(t))
+    .sort(compareTasksChronologically);
+  const groups: { key: string; label: string; tasks: V5Task[] }[] = [
+    ...datedGroups,
+    ...(noDateTasks.length ? [{ key: 'noDate', label: 'Без дати', tasks: noDateTasks }] : []),
+  ];
 
-  const overdue = s.tasks.filter((t) => !t.completed && t.overdue && match(t));
-  const completed = s.tasks.filter((t) => t.completed && match(t));
+  const overdue = s.tasks.filter((t) => isTaskInListSection(t, 'overdue') && match(t)).sort(compareTasksChronologically);
+  const completed = s.tasks.filter((t) => isTaskInListSection(t, 'completed') && match(t)).sort(compareTasksChronologically);
+  const cancelled = s.tasks.filter((t) => isTaskInListSection(t, 'cancelled') && match(t)).sort(compareTasksChronologically);
   const completedCount = completed.length;
-  const total = s.tasks.length;
-  const done = s.tasks.filter((t) => t.completed).length;
+  const cancelledCount = cancelled.length;
+  const activeCount = s.tasks.filter((t) => isTaskInListSection(t, 'active')).length;
+  const done = s.tasks.filter((t) => isTaskInListSection(t, 'completed')).length;
+  const total = done + activeCount;
 
   const menuOpen = s.listAddMenuOpen;
   const textMode = s.listAddMode === 'text';
 
   return (
     <View style={StyleSheet.absoluteFill}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <ListIcon size={22} color={palette.accent} />
-            <View>
-              <Text style={styles.h1}>Мої задачі</Text>
-              <Text style={styles.date}>{formatDateLabel(new Date())}</Text>
-            </View>
-          </View>
-          <View style={styles.headerBtns}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="never"
+        onScrollBeginDrag={s.listSearchOpen ? s.closeListSearch : undefined}
+        showsVerticalScrollIndicator={false}
+      >
+        <ScreenHeader
+          icon={<ListIcon size={24} color={palette.accent} />}
+          title="Мої задачі"
+          actions={<>
             <Pressable onPress={s.toggleListSearch} style={styles.iconBtn}><SearchIcon size={18} color={palette.textMuted} /></Pressable>
             <Pressable onPress={s.openCategoryEditor} style={styles.iconBtn}><FunnelIcon size={18} color={palette.textMuted} /></Pressable>
-          </View>
-        </View>
+          </>}
+        />
 
         {s.listSearchOpen ? (
           <View style={styles.searchBar}>
@@ -57,10 +71,11 @@ export default function ListTab() {
             <TextInput
               value={s.listSearchQuery}
               onChangeText={s.setListSearch}
-              placeholder="Пошук задач..."
+              placeholder="Назва, категорія або ключове слово..."
               placeholderTextColor={palette.textFaint}
               style={styles.searchInput}
               autoFocus
+              onBlur={s.closeListSearch}
             />
           </View>
         ) : null}
@@ -71,15 +86,27 @@ export default function ListTab() {
 
         {groups.map((g) => (
           <View key={g.key} style={{ marginBottom: 22 }}>
-            <Text style={styles.groupLabel}>{g.label}</Text>
+            <View style={styles.groupHeading}>
+              <Text style={styles.groupLabel}>{g.label}</Text>
+              {g.key === 'today' ? <Text style={styles.groupDate}>{formatDateLabel(new Date())}</Text> : null}
+            </View>
             {g.tasks.map((t) => <TaskCard key={t.id} task={t} />)}
           </View>
         ))}
 
         {overdue.length > 0 ? (
           <View style={{ marginBottom: 22 }}>
-            <Text style={[styles.groupLabel, { color: palette.accent }]}>Прострочені</Text>
-            {overdue.map((t) => <TaskCard key={t.id} task={t} />)}
+            <Pressable
+              onPress={s.toggleShowOverdue}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: s.showOverdue }}
+              accessibilityLabel={`Прострочені задачі: ${overdue.length}`}
+              style={[styles.completedToggle, styles.overdueToggle]}
+            >
+              <Text style={[styles.completedToggleText, { color: palette.accent }]}>Прострочені — {overdue.length}</Text>
+              <Text style={styles.completedToggleAction}>{s.showOverdue ? 'Сховати' : 'Показати'}</Text>
+            </Pressable>
+            {s.showOverdue && overdue.length > 0 ? <View style={{ marginTop: 10, gap: 8 }}>{overdue.map((t) => <TaskCard key={t.id} task={t} />)}</View> : null}
           </View>
         ) : null}
 
@@ -104,6 +131,47 @@ export default function ListTab() {
                           <CategoryTag name={t.category} color={cat} />
                         </View>
                       </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {cancelledCount > 0 ? (
+          <View style={{ marginBottom: 22 }}>
+            <Pressable
+              onPress={s.toggleShowCancelled}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: s.showCancelled }}
+              accessibilityLabel={`Скасовані задачі: ${cancelledCount}`}
+              style={[styles.completedToggle, styles.cancelledToggle]}
+            >
+              <Text style={styles.completedToggleText}>Скасовані — {cancelledCount}</Text>
+              <Text style={styles.completedToggleAction}>{s.showCancelled ? 'Сховати' : 'Показати'}</Text>
+            </Pressable>
+            {s.showCancelled ? (
+              <View style={{ marginTop: 10, gap: 8 }}>
+                {cancelled.map((task) => {
+                  const cat = s.categories[task.category] || palette.textFaint;
+                  return (
+                    <Pressable key={task.id} onPress={() => s.openTaskDetail(task.id)} style={styles.cancelledCard}>
+                      <Pressable
+                        onPress={() => s.restoreTask(task.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Відновити задачу ${task.title}`}
+                        style={styles.cancelledRestore}
+                      >
+                        <Text style={styles.cancelledRestoreIcon}>↺</Text>
+                      </Pressable>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text numberOfLines={1} style={styles.cancelledTitle}>{task.title}</Text>
+                        <View style={{ marginTop: 5, opacity: 0.55, flexDirection: 'row' }}>
+                          <CategoryTag name={task.category} color={cat} />
+                        </View>
+                      </View>
+                      <Text style={styles.restoreLabel}>Відновити</Text>
                     </Pressable>
                   );
                 })}
@@ -153,22 +221,26 @@ export default function ListTab() {
 
 const styles = StyleSheet.create({
   scroll: { paddingTop: 52, paddingHorizontal: 20, paddingBottom: 170 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 22 },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  h1: { fontSize: 26, fontWeight: '700', color: palette.text, letterSpacing: -0.3 },
-  date: { fontSize: 14, color: palette.textMuted, marginTop: 4 },
-  headerBtns: { flexDirection: 'row', gap: 8 },
   iconBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, alignItems: 'center', justifyContent: 'center' },
   searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 14, paddingHorizontal: 14, height: 44, marginBottom: 18 },
   searchInput: { flex: 1, color: palette.text, fontSize: 14, padding: 0 },
-  groupLabel: { fontSize: 12, fontWeight: '600', color: palette.textMuted, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 10 },
+  groupHeading: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 },
+  groupLabel: { fontSize: 12, fontWeight: '600', color: palette.textMuted, letterSpacing: 0.6, textTransform: 'uppercase' },
+  groupDate: { color: palette.textFaint, fontSize: 12, textTransform: 'none', letterSpacing: 0 },
   completedToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 14, backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.surfaceAltBorder, borderRadius: 14 },
+  overdueToggle: { backgroundColor: withAlpha(palette.accent, 0.08), borderColor: withAlpha(palette.accent, 0.3) },
+  cancelledToggle: { backgroundColor: palette.surfaceAlt, borderColor: palette.border },
   completedToggleText: { fontSize: 13, color: palette.textMuted },
   completedToggleAction: { fontSize: 12.5, color: palette.accent, fontWeight: '600' },
   completedCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: palette.surfaceAlt, borderRadius: 14, borderWidth: 1, borderColor: palette.surfaceAltBorder },
   completedCheckbox: { width: 24, height: 24, borderRadius: 7, backgroundColor: withAlpha(palette.accent, 0.35), alignItems: 'center', justifyContent: 'center', opacity: 0.7 },
   completedCheck: { color: palette.text, fontSize: 11, lineHeight: 12 },
   completedTitle: { fontSize: 14, fontWeight: '500', color: palette.textFaint, textDecorationLine: 'line-through' },
+  cancelledCard: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: palette.surfaceAlt, borderRadius: 14, borderWidth: 1, borderColor: palette.surfaceAltBorder, opacity: 0.8 },
+  cancelledRestore: { width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.borderStrong },
+  cancelledRestoreIcon: { color: palette.textSecondary, fontSize: 17, lineHeight: 19, fontWeight: '700' },
+  cancelledTitle: { color: palette.textFaint, fontSize: 14, fontWeight: '500', textDecorationLine: 'line-through' },
+  restoreLabel: { color: palette.textMuted, fontSize: 10.5, fontWeight: '600' },
   menuBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)' },
   fabItem: { position: 'absolute', right: 24, width: 46, height: 46, borderRadius: 14, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.chipBorder, alignItems: 'center', justifyContent: 'center', elevation: 6, shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 9, shadowOffset: { width: 0, height: 6 } },
   textBar: { position: 'absolute', left: 20, right: 20, bottom: 110, backgroundColor: palette.surface, borderWidth: 1.5, borderColor: palette.accent, borderRadius: 16, height: 56, paddingLeft: 16, paddingRight: 10, flexDirection: 'row', alignItems: 'center', gap: 10, elevation: 10, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 14, shadowOffset: { width: 0, height: 10 } },

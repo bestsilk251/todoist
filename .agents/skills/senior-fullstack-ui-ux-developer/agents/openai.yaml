@@ -1,0 +1,4 @@
+interface:
+  display_name: "Senior Full Stack UI/UX Developer"
+  short_description: "Production-ready full-stack and UI/UX guidance"
+  default_prompt: "Use $senior-fullstack-ui-ux-developer to implement this feature as a production-ready solution in the TODOIST project."

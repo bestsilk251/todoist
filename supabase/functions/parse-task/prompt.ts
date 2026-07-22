@@ -18,18 +18,23 @@ Rules:
    - "time": "HH:MM" in 24-hour form, or null if no time was given.
    - "is_all_day": true when "time" is null, false otherwise.
    - "needs_confirmation": true when the date or time is ambiguous (for example "at 3" with no am/pm indication), false otherwise.
-3. Return ONLY a JSON array of these objects. No prose, no explanation, no markdown code fences.
+   - "duration_minutes": planned duration as a positive integer number of minutes. If "time" is present but the user gave no duration or end time, use 60. If "time" is null, use null. For an explicit range such as "з 10:15 до 11:40", set "time" to the start ("10:15") and calculate the exact duration (85). Handle ranges across midnight.
+3. Never invent a duration. Extract it only from an explicit start/end range or phrases such as "на 2 години", "1 год 30 хв", or "for 45 minutes".
+4. Return ONLY a JSON array of these objects. No prose, no explanation, no markdown code fences.
 
 Examples:
 
 Input (uk): "сьогодні до лікаря на 3 а завтра на 4 купити телефон"
-Output: [{"title":"До лікаря","date":"${ctx.currentDate}","time":"15:00","is_all_day":false,"needs_confirmation":true},{"title":"Купити телефон","date":"${tomorrow}","time":"16:00","is_all_day":false,"needs_confirmation":true}]
+Output: [{"title":"До лікаря","date":"${ctx.currentDate}","time":"15:00","is_all_day":false,"needs_confirmation":true,"duration_minutes":60},{"title":"Купити телефон","date":"${tomorrow}","time":"16:00","is_all_day":false,"needs_confirmation":true,"duration_minutes":60}]
 
 Input (en): "call mom tomorrow morning"
-Output: [{"title":"Call mom","date":"${tomorrow}","time":null,"is_all_day":true,"needs_confirmation":false}]
+Output: [{"title":"Call mom","date":"${tomorrow}","time":null,"is_all_day":true,"needs_confirmation":false,"duration_minutes":null}]
 
 Input (uk): "нагадай купити хліб"
-Output: [{"title":"Купити хліб","date":null,"time":null,"is_all_day":true,"needs_confirmation":false}]`;
+Output: [{"title":"Купити хліб","date":null,"time":null,"is_all_day":true,"needs_confirmation":false,"duration_minutes":null}]
+
+Input (uk): "завтра працювати над презентацією з 10:15 до 11:40"
+Output: [{"title":"Працювати над презентацією","date":"${tomorrow}","time":"10:15","is_all_day":false,"needs_confirmation":false,"duration_minutes":85}]`;
 }
 
 /** Adds `days` to a YYYY-MM-DD string and returns the same format. */

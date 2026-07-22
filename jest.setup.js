@@ -1,5 +1,8 @@
 // Silence the noisy RN animation warning in tests.
-jest.mock('react-native/Libraries/Animated/NativeAnimatedHelper');
+jest.mock('react-native/Libraries/Animated/NativeAnimatedHelper', () => ({}), { virtual: true });
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
 
 /**
  * Render every component test against iPhone 16 Pro safe-area insets
@@ -20,12 +23,15 @@ jest.mock('react-native-safe-area-context', () => {
 });
 
 // Match the 16 Pro's logical window size for Dimensions-based logic.
-jest.mock('react-native/Libraries/Utilities/Dimensions', () => ({
-  get: jest.fn().mockReturnValue({ width: 402, height: 874, scale: 3, fontScale: 1 }),
-  set: jest.fn(),
-  addEventListener: jest.fn(() => ({ remove: jest.fn() })),
-  removeEventListener: jest.fn(),
-}));
+jest.mock('react-native/Libraries/Utilities/Dimensions', () => {
+  const dimensions = {
+    get: jest.fn().mockReturnValue({ width: 402, height: 874, scale: 3, fontScale: 1 }),
+    set: jest.fn(),
+    addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+    removeEventListener: jest.fn(),
+  };
+  return { __esModule: true, default: dimensions, ...dimensions };
+});
 
 afterEach(() => {
   jest.clearAllMocks();

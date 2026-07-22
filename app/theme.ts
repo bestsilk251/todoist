@@ -158,8 +158,9 @@ export const categoryColors: Record<string, string> = {
 
 /** Swatch palette offered in the category-color editor. */
 export const categorySwatches = [
-  '#7B6FA6', '#6E8CB8', '#5FA07A', '#4E9DA6',
-  '#A88A5C', '#B07A8C', '#8C8C94', '#A0785A',
+  '#7657F6', '#667EEA', '#6E8CB8', '#4E9DA6', '#52C7A5', '#5FA07A', '#8BCB62',
+  '#E0AA32', '#E58B45', '#E56F4A', '#E53935', '#DF6483', '#BC63D3', '#8B5CE5',
+  '#8B735B', '#8A7D73', '#6D6D74', '#8C8C94', '#A4A4AC', '#B0B0B8', '#5D5D64',
 ] as const;
 
 export type Priority = 'urgent' | 'high' | 'medium' | 'low';

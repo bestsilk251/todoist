@@ -4,30 +4,51 @@ import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { palette, withAlpha } from '../../theme';
 import { useV5 } from './store';
+import { calculateStreak } from '../../lib/analyticsMath';
+import { ScreenHeader } from './ui';
 import {
   ProfileIcon, PencilIcon, CheckCircleIcon, FireIcon, StarIcon, PersonHeadIcon, LogoutIcon, CaretRight,
 } from '../../components/icons';
 
-function SettingRow({ label, value, first, last }: { label: string; value?: string; first?: boolean; last?: boolean }) {
+function SettingRow({ label, value, last, onPress }: { label: string; value?: string; last?: boolean; onPress?: () => void }) {
   return (
-    <View style={[styles.settingRow, !last && styles.settingDivider]}>
+    <Pressable onPress={onPress} disabled={!onPress} style={[styles.settingRow, !last && styles.settingDivider]}>
       <Text style={styles.settingLabel}>{label}</Text>
       <View style={styles.settingRight}>
         {value ? <Text style={styles.settingValue}>{value}</Text> : null}
         <CaretRight size={7} color={palette.textFaint} />
       </View>
-    </View>
+    </Pressable>
   );
 }
 
 export default function ProfileTab() {
   const s = useV5();
+  const completedTasks = s.tasks.filter((task) => task.completed).length;
+  const completedAt = s.tasks.flatMap((task) => task.completedAt ? [task.completedAt] : []);
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const streakDays = calculateStreak(completedAt, new Date(), timezone);
+  const today = new Date();
+  const onTimeEligible = s.tasks.filter((task) => task.completedAt && task.dueInDays != null);
+  const onTimeCount = onTimeEligible.filter((task) => {
+    const due = new Date(today.getFullYear(), today.getMonth(), today.getDate() + task.dueInDays!);
+    if (task.time) {
+      const [hours, minutes] = task.time.split(':').map(Number);
+      due.setHours(hours, minutes, 59, 999);
+    } else {
+      due.setHours(23, 59, 59, 999);
+    }
+    return new Date(task.completedAt!).getTime() <= due.getTime();
+  }).length;
+  const onTimeRate = onTimeEligible.length ? Math.round((onTimeCount / onTimeEligible.length) * 100) : null;
+  const xp = completedTasks * 10 + s.sharedTaskCount * 20;
+  const level = Math.floor(xp / 500) + 1;
+  const levelXp = xp % 500;
+  const levelProgress = Math.round((levelXp / 500) * 100);
+
   return (
     <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-      <View style={styles.header}>
-        <ProfileIcon size={22} color={palette.accent} />
-        <Text style={styles.h1}>Профіль</Text>
-      </View>
+      <ScreenHeader icon={<ProfileIcon size={24} color={palette.accent} />} title="Профіль" />
 
       <View style={styles.avatarBlock}>
         <View style={styles.avatarWrap}>
@@ -40,11 +61,11 @@ export default function ProfileTab() {
 
       <View style={styles.statsWrap}>
         <View style={styles.statCard}>
-          <View style={styles.statTop}><CheckCircleIcon size={14} color={palette.badgeGreen} /><Text style={styles.statNum}>128</Text></View>
-          <Text style={styles.statLabel}>Виконано</Text>
+          <View style={styles.statTop}><CheckCircleIcon size={14} color={palette.badgeGreen} /><Text style={styles.statNum}>{completedTasks}</Text></View>
+          <Text style={styles.statLabel}>Виконано за весь час</Text>
         </View>
         <View style={styles.statCard}>
-          <View style={styles.statTop}><FireIcon size={14} color={palette.badgeStreak} /><Text style={styles.statNum}>9</Text></View>
+          <View style={styles.statTop}><FireIcon size={14} color={palette.badgeStreak} /><Text style={styles.statNum}>{streakDays}</Text></View>
           <Text style={styles.statLabel}>Днів поспіль</Text>
         </View>
         <View style={styles.statWide}>
@@ -53,9 +74,9 @@ export default function ProfileTab() {
               <Text style={styles.statWideLabel}>Вчасно виконано</Text>
               <Text style={styles.statWideSub}>за останні 30 днів</Text>
             </View>
-            <Text style={styles.statWidePct}>78%</Text>
+            <Text style={styles.statWidePct}>{onTimeRate == null ? '—' : `${onTimeRate}%`}</Text>
           </View>
-          <View style={styles.track}><View style={{ width: '78%', height: '100%', backgroundColor: palette.accent, borderRadius: 3 }} /></View>
+          <View style={styles.track}><View style={{ width: `${onTimeRate ?? 0}%`, height: '100%', backgroundColor: palette.accent, borderRadius: 3 }} /></View>
         </View>
       </View>
 
@@ -66,18 +87,18 @@ export default function ProfileTab() {
           </LinearGradient>
           <View style={{ flex: 1 }}>
             <View style={styles.levelTop}>
-              <Text style={styles.levelTitle}>Рівень 3</Text>
-              <Text style={styles.levelXp}>420 XP</Text>
+              <Text style={styles.levelTitle}>Рівень {level}</Text>
+              <Text style={styles.levelXp}>{xp} XP</Text>
             </View>
-            <Text style={styles.levelSub}>Залишилось 80 XP до рівня 4</Text>
+            <Text style={styles.levelSub}>Залишилось {500 - levelXp} XP до рівня {level + 1}</Text>
           </View>
         </View>
-        <View style={[styles.track, { marginTop: 12 }]}><View style={{ width: '84%', height: '100%', backgroundColor: palette.accent, borderRadius: 3 }} /></View>
+        <View style={[styles.track, { marginTop: 12 }]}><View style={{ width: `${levelProgress}%`, height: '100%', backgroundColor: palette.accent, borderRadius: 3 }} /></View>
       </View>
 
       <View style={styles.sectionHead}>
         <Text style={styles.sectionTitle}>Нагороди</Text>
-        <Text style={styles.sectionAction}>Переглянути всі</Text>
+        <Pressable onPress={s.openAchievements} hitSlop={10}><Text style={styles.sectionAction}>Переглянути всі</Text></Pressable>
       </View>
       <View style={styles.card}>
         <View style={[styles.badgeRow, styles.settingDivider]}>
@@ -86,7 +107,7 @@ export default function ProfileTab() {
             <Text style={styles.badgeTitle}>7 днів поспіль</Text>
             <Text style={styles.badgeSub}>Виконуйте задачі 7 днів підряд</Text>
           </View>
-          <Text style={styles.badgeDate}>Отримано{'\n'}18.07.2025</Text>
+          <Text style={styles.badgeDate}>{streakDays >= 7 ? 'Отримано' : `${streakDays}/7`}</Text>
         </View>
         <View style={[styles.badgeRow, styles.settingDivider]}>
           <View style={[styles.badgeCircle, { backgroundColor: withAlpha(palette.badgeGold, 0.14), borderColor: withAlpha(palette.badgeGold, 0.4) }]}><Text style={{ fontSize: 12, fontWeight: '700', color: palette.badgeGold }}>50</Text></View>
@@ -94,36 +115,35 @@ export default function ProfileTab() {
             <Text style={styles.badgeTitle}>50 виконаних задач</Text>
             <Text style={styles.badgeSub}>Досягніть 50 виконаних задач</Text>
           </View>
-          <Text style={styles.badgeDate}>Отримано{'\n'}10.07.2025</Text>
+          <Text style={styles.badgeDate}>{completedTasks >= 50 ? 'Отримано' : `${completedTasks}/50`}</Text>
         </View>
         <View style={styles.badgeRow}>
           <View style={[styles.badgeCircle, { backgroundColor: withAlpha(palette.badgePurple, 0.14), borderColor: withAlpha(palette.badgePurple, 0.4) }]}><PersonHeadIcon size={16} color={palette.badgePurple} /></View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.badgeTitle}>Перша спільна задача</Text>
-            <Text style={styles.badgeSub}>Створіть або прийміть спільну задачу</Text>
+            <Text style={styles.badgeTitle}>Командний старт</Text>
+            <Text style={styles.badgeSub}>Поділіться задачею з другом</Text>
           </View>
-          <Text style={styles.badgeDate}>Отримано{'\n'}05.07.2025</Text>
+          <Text style={styles.badgeDate}>{s.sharedTaskCount > 0 ? 'Отримано' : '0/1'}</Text>
         </View>
       </View>
 
       <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>Налаштування</Text>
       <View style={styles.card}>
-        <SettingRow label="Сповіщення" value="Увімкнено" first />
+        <SettingRow label="Сповіщення" value="Увімкнено" />
         <SettingRow label="Оформлення" value="Темна" />
-        <SettingRow label="Мова" value="Українська" />
-        <SettingRow label="Часовий пояс" value="Київ, GMT+2" />
-        <SettingRow label="Початок тижня" value="Понеділок" last />
+        <SettingRow label="Мова" value="Українська" last />
       </View>
 
       <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>Акаунт</Text>
       <View style={styles.card}>
-        <SettingRow label="Особисті дані" first />
-        <SettingRow label="Безпека" />
-        <SettingRow label="Експорт даних" last />
+        <SettingRow label="Особисті дані" />
+        <SettingRow label="Безпека" onPress={s.openSecurityInfo} last />
       </View>
 
+      <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>Допомога</Text>
       <View style={[styles.card, { marginBottom: 32 }]}>
-        <SettingRow label="Про застосунок" first last />
+        <SettingRow label="Як користуватися" value="Гайд" onPress={s.openUsageGuide} />
+        <SettingRow label="Про застосунок" onPress={s.openAboutApp} last />
       </View>
 
       <Pressable onPress={s.openLogoutConfirm} style={styles.logout}>
@@ -131,15 +151,13 @@ export default function ProfileTab() {
         <Text style={styles.logoutText}>Вийти</Text>
       </Pressable>
 
-      <Text style={styles.version}>Версія 1.0.0</Text>
+      <Text style={styles.version}>Версія 0.1.0</Text>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   scroll: { paddingTop: 52, paddingHorizontal: 20, paddingBottom: 110 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
-  h1: { fontSize: 26, fontWeight: '700', color: palette.text },
   avatarBlock: { alignItems: 'center', gap: 10, marginBottom: 24 },
   avatarWrap: { width: 80, height: 80 },
   avatar: { width: 80, height: 80, borderRadius: 40, backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.chipBorder, alignItems: 'center', justifyContent: 'center' },
@@ -151,7 +169,7 @@ const styles = StyleSheet.create({
   statCard: { flex: 1, minWidth: 100, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: 14, alignItems: 'center' },
   statTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
   statNum: { fontSize: 19, fontWeight: '700', color: palette.text },
-  statLabel: { fontSize: 11.5, color: palette.textMuted, marginTop: 3 },
+  statLabel: { minHeight: 28, fontSize: 11.5, lineHeight: 14, color: palette.textMuted, marginTop: 3, textAlign: 'center' },
   statWide: { width: '100%', backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: 14 },
   statWideTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   statWideLabel: { fontSize: 12.5, color: palette.textMuted },

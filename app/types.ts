@@ -5,6 +5,7 @@ export interface ParsedTask {
   time: string | null;
   is_all_day: boolean;
   needs_confirmation: boolean;
+  duration_minutes?: number | null;
 }
 
 /** Task priority, persisted in the `priority` column (added in 0002). */
@@ -21,11 +22,13 @@ export interface Task {
   due_time: string | null;
   is_all_day: boolean;
   needs_confirmation: boolean;
-  status: 'pending' | 'done';
+  status: 'pending' | 'done' | 'cancelled';
   source_text: string | null;
   category: string;
   important: boolean;
   priority: Priority;
+  completed_at: string | null;
+  duration_minutes: number | null;
   created_at: string;
   updated_at: string;
 }

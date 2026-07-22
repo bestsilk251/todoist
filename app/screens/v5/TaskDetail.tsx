@@ -1,14 +1,17 @@
 /** Full-screen task detail with date/category/priority, description and share. */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { palette, priorityColor, priorityLabel, withAlpha } from '../../theme';
 import { monthsGen, weekdaysFull, descByCategory } from '../../lib/v5data';
+import { DEFAULT_TIMED_TASK_DURATION_MINUTES } from '../../lib/calendarMath';
 import { useV5 } from './store';
-import { ChevronLeftIcon, DotsVerticalIcon, CalendarSlimIcon, FunnelIcon, FlagIcon, PersonPlusIcon, ShareArrowIcon } from '../../components/icons';
+import { ChevronLeftIcon, DotsVerticalIcon, CalendarSlimIcon, FunnelIcon, FlagIcon, PersonPlusIcon, ShareArrowIcon, CaretRight } from '../../components/icons';
 
 export default function TaskDetail() {
   const s = useV5();
   const t = s.tasks.find((x) => x.id === s.taskDetailId);
+  const [editingSection, setEditingSection] = useState<'category' | 'priority' | null>(null);
+  useEffect(() => setEditingSection(null), [s.taskDetailId]);
   if (!t) return null;
 
   const today = new Date();
@@ -19,11 +22,12 @@ export default function TaskDetail() {
   if (t.dueInDays != null) dObj.setDate(today.getDate() + t.dueInDays);
   const fullDateLabel = t.dueInDays == null ? 'Без дати' : `${dObj.getDate()} ${monthsGen[dObj.getMonth()]} ${dObj.getFullYear()}, ${weekdaysFull[dObj.getDay()]}`;
 
-  let timeRangeLabel = 'Без часу';
+  let endTimeLabel = '—';
   if (t.time) {
     const [h, m] = t.time.split(':').map(Number);
-    const end = new Date(0, 0, 0, h, m + 60);
-    timeRangeLabel = `${t.time} – ${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
+    const totalEndMinutes = h * 60 + m + (t.durationMinutes ?? DEFAULT_TIMED_TASK_DURATION_MINUTES);
+    const normalizedEnd = totalEndMinutes % (24 * 60);
+    endTimeLabel = `${String(Math.floor(normalizedEnd / 60)).padStart(2, '0')}:${String(normalizedEnd % 60).padStart(2, '0')}${totalEndMinutes >= 24 * 60 ? ' · +1 день' : ''}`;
   }
 
   let subtitleLabel: string;
@@ -56,19 +60,60 @@ export default function TaskDetail() {
         <View style={styles.infoCard}>
           <View style={[styles.infoRow, styles.infoDivider]}>
             <CalendarSlimIcon size={17} color={palette.accent} />
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.infoMain}>{fullDateLabel}</Text>
-              <Text style={styles.infoSub}>{timeRangeLabel}</Text>
+              <View style={styles.timeEditorRow}>
+                <Pressable onPress={() => s.openTaskTimePicker(t.id)} style={styles.timeEditorButton}>
+                  <Text style={styles.timeEditorLabel}>Початок</Text>
+                  <Text style={styles.timeEditorValue}>{t.time || 'Додати'}</Text>
+                </Pressable>
+                <Text style={styles.timeArrow}>→</Text>
+                <Pressable onPress={() => s.openTaskEndTimePicker(t.id)} disabled={!t.time} style={[styles.timeEditorButton, !t.time && { opacity: 0.45 }]}>
+                  <Text style={styles.timeEditorLabel}>Завершення</Text>
+                  <Text style={styles.timeEditorValue}>{endTimeLabel}</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
-          <View style={[styles.infoRow, styles.infoBetween, styles.infoDivider]}>
+          <Pressable onPress={() => setEditingSection(editingSection === 'category' ? null : 'category')} style={[styles.infoRow, styles.infoBetween, styles.infoDivider]}>
             <View style={styles.infoLeft}><FunnelIcon size={17} color={palette.textMuted} /><Text style={styles.infoLabel}>Категорія</Text></View>
-            <Text style={tag(12)}>{t.category}</Text>
-          </View>
-          <View style={[styles.infoRow, styles.infoBetween]}>
+            <View style={styles.editValue}><Text style={tag(12)}>{t.category}</Text><CaretRight size={7} color={palette.textFaint} /></View>
+          </Pressable>
+          {editingSection === 'category' ? (
+            <View style={[styles.optionPanel, styles.infoDivider]}>
+              {Object.keys(s.categories).map((category) => {
+                const color = s.categories[category] || palette.textFaint;
+                const active = category === t.category;
+                return (
+                  <Pressable key={category} onPress={() => { s.updateTask(t.id, { category }); setEditingSection(null); }} style={[styles.optionChip, active && { borderColor: color, backgroundColor: withAlpha(color, 0.14) }]}>
+                    <View style={[styles.optionDot, { backgroundColor: color }]} />
+                    <Text style={[styles.optionText, active && { color }]}>{category}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+          <Pressable onPress={() => setEditingSection(editingSection === 'priority' ? null : 'priority')} style={[styles.infoRow, styles.infoBetween]}>
             <View style={styles.infoLeft}><FlagIcon size={17} color={palette.textMuted} /><Text style={styles.infoLabel}>Пріоритет</Text></View>
-            <Text style={{ fontSize: 12, color: pColor, backgroundColor: withAlpha(pColor, 0.15), paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8, fontWeight: '600', overflow: 'hidden' }}>{priorityLabel(t.priority)}</Text>
-          </View>
+            <View style={styles.editValue}>
+              <Text style={{ fontSize: 12, color: pColor, backgroundColor: withAlpha(pColor, 0.15), paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8, fontWeight: '600', overflow: 'hidden' }}>{priorityLabel(t.priority)}</Text>
+              <CaretRight size={7} color={palette.textFaint} />
+            </View>
+          </Pressable>
+          {editingSection === 'priority' ? (
+            <View style={styles.optionPanel}>
+              {(['urgent', 'high', 'medium', 'low'] as const).map((priority) => {
+                const color = priorityColor(priority);
+                const active = priority === t.priority;
+                return (
+                  <Pressable key={priority} onPress={() => { s.updateTask(t.id, { priority }); setEditingSection(null); }} style={[styles.optionChip, active && { borderColor: color, backgroundColor: withAlpha(color, 0.14) }]}>
+                    <View style={[styles.optionDot, { backgroundColor: color }]} />
+                    <Text style={[styles.optionText, active && { color }]}>{priorityLabel(priority)}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
         </View>
 
         <Text style={styles.sectionLabel}>Опис</Text>
@@ -105,6 +150,16 @@ const styles = StyleSheet.create({
   infoMain: { fontSize: 14, color: palette.text, fontWeight: '500' },
   infoSub: { fontSize: 12.5, color: palette.textMuted, marginTop: 2 },
   infoLabel: { fontSize: 14, color: palette.text },
+  timeEditorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 9 },
+  timeEditorButton: { flex: 1, minHeight: 44, borderRadius: 11, borderWidth: 1, borderColor: palette.borderStrong, backgroundColor: palette.surfaceAlt, paddingHorizontal: 10, justifyContent: 'center' },
+  timeEditorLabel: { color: palette.textFaint, fontSize: 10.5 },
+  timeEditorValue: { color: palette.text, fontSize: 13, fontWeight: '600', marginTop: 2 },
+  timeArrow: { color: palette.textFaint, fontSize: 14 },
+  editValue: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  optionPanel: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: palette.surfaceAlt },
+  optionChip: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 11, borderRadius: 11, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface },
+  optionDot: { width: 7, height: 7, borderRadius: 4 },
+  optionText: { color: palette.textSecondary, fontSize: 12.5, fontWeight: '500' },
   sectionLabel: { fontSize: 12, fontWeight: '600', color: palette.textMuted, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 10 },
   description: { fontSize: 14, color: palette.textSecondary, lineHeight: 22, marginBottom: 24 },
   shareBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 16 },

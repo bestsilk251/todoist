@@ -44,7 +44,7 @@ describe('ConfirmScreen', () => {
     await waitFor(() => {
       expect(mockInsert).toHaveBeenCalledWith([
         expect.objectContaining({ title: 'Buy milk', due_date: '2026-07-21' }),
-        expect.objectContaining({ title: 'До лікаря', due_time: '15:00' }),
+        expect.objectContaining({ title: 'До лікаря', due_time: '15:00', duration_minutes: 60 }),
       ]);
       expect(mockNavigate).toHaveBeenCalledWith('TaskList');
     });

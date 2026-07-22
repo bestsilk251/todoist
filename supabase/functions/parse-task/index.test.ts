@@ -40,3 +40,17 @@ Deno.test("falls back when the LLM call itself throws", async () => {
   assertEquals(result.fallback, true);
   assertEquals(result.tasks[0].title, "buy milk");
 });
+
+Deno.test("preserves an exact task duration", async () => {
+  const fakeLLM = () =>
+    Promise.resolve(
+      `[{"title":"Focus","date":"2026-07-21","time":"10:15","is_all_day":false,"needs_confirmation":false,"duration_minutes":85}]`,
+    );
+
+  const result = await handleParseTask(
+    { text: "focus from 10:15 to 11:40", currentDate: "2026-07-21", timezone: "Europe/Kyiv" },
+    fakeLLM,
+  );
+
+  assertEquals(result.tasks[0].duration_minutes, 85);
+});

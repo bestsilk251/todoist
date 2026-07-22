@@ -4,6 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { getSupabaseClient } from '../lib/supabase';
 import { isoToDisplayDate } from '../lib/dateTime';
+import { isoOf } from '../lib/tasksRepo';
+import { DEFAULT_TIMED_TASK_DURATION_MINUTES } from '../lib/calendarMath';
 import type { ParsedTask } from '../types';
 import { spacing, touch, typography, colors, radius } from '../theme';
 
@@ -24,9 +26,10 @@ export default function ConfirmScreen() {
     await client.from('tasks').insert(
       tasks.map((t) => ({
         title: t.title,
-        due_date: t.date,
+        due_date: t.date ?? isoOf(new Date()),
         due_time: t.time,
         is_all_day: t.is_all_day,
+        duration_minutes: !t.is_all_day && t.time ? (t.duration_minutes ?? DEFAULT_TIMED_TASK_DURATION_MINUTES) : (t.duration_minutes ?? null),
         needs_confirmation: t.needs_confirmation,
         source_text: sourceText,
       })),
@@ -52,6 +55,7 @@ export default function ConfirmScreen() {
             <Text style={styles.meta}>
               {item.date ? isoToDisplayDate(item.date) : 'без дати'}
               {item.time ? ` · ${item.time}` : ''}
+              {item.duration_minutes ? ` · ${item.duration_minutes} хв` : ''}
             </Text>
             {item.needs_confirmation ? <Text style={styles.flag}>⚠️ confirm time</Text> : null}
           </View>
