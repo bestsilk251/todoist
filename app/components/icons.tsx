@@ -26,13 +26,11 @@ export function HomeIcon({ size = 20, color = palette.textFaint }: IconProps) {
 export function ListIcon({ size = 20, color = palette.textFaint }: IconProps) {
   return (
     <Svg {...S(size)} fill="none">
-      <Rect x={5} y={4} width={14} height={17} rx={2.5} stroke={color} strokeWidth={1.7} />
-      <Rect x={9} y={2.5} width={6} height={3} rx={1.2} fill={color} />
-      <Path d="M8 10.5l1.4 1.4L12 9.2" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
-      <Line x1={13.5} y1={10.5} x2={17} y2={10.5} stroke={color} strokeWidth={1.7} strokeLinecap="round" />
-      <Circle cx={8.5} cy={15} r={1} fill={color} />
-      <Line x1={13.5} y1={15} x2={17} y2={15} stroke={color} strokeWidth={1.7} strokeLinecap="round" />
-      <Path d="M8 19.2l1.4 1.4L12 17.9" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+      <Rect x={4.5} y={3.5} width={15} height={17} rx={3} stroke={color} strokeWidth={1.7} />
+      <Path d="M7.3 9.2 8.8 10.7 11.2 8.2" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+      <Line x1={13} y1={9.5} x2={17} y2={9.5} stroke={color} strokeWidth={1.7} strokeLinecap="round" />
+      <Path d="M7.3 15 8.8 16.5 11.2 14" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+      <Line x1={13} y1={15.3} x2={17} y2={15.3} stroke={color} strokeWidth={1.7} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -65,7 +63,7 @@ export function CalendarSlimIcon({ size = 17, color = palette.accent }: IconProp
 export function ProfileIcon({ size = 20, color = palette.textFaint }: IconProps) {
   return (
     <Svg {...S(size)} fill="none">
-      <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.7} strokeDasharray="50 6" />
+      <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.7} />
       <Circle cx={12} cy={10} r={3.4} stroke={color} strokeWidth={1.7} />
       <Path d="M6.5 19c1.2-2.6 3.2-4 5.5-4s4.3 1.4 5.5 4" stroke={color} strokeWidth={1.7} strokeLinecap="round" />
     </Svg>

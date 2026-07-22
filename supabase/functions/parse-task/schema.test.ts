@@ -35,3 +35,10 @@ Deno.test("accepts null date for tasks with no date given", () => {
   const result = parseTaskList(raw);
   assertEquals(result[0].date, null);
 });
+
+Deno.test("parses an optional category while remaining compatible with older output", () => {
+  const categorized = parseTaskList(`[{"title":"Звіт","date":"2026-07-21","time":"10:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Робота"}]`);
+  const legacy = parseTaskList(`[{"title":"Звіт","date":"2026-07-21","time":"10:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60}]`);
+  assertEquals(categorized[0].category, "Робота");
+  assertEquals(legacy[0].category, null);
+});

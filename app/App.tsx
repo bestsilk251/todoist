@@ -7,6 +7,7 @@ import type { UserProfile } from './screens/v5/store';
 import { useAuth, signOut } from './lib/useAuth';
 import { USAGE_GUIDE_PENDING_METADATA_KEY } from './lib/usageGuide';
 import { palette } from './theme';
+import { AppThemeProvider, useAppTheme } from './ThemeProvider';
 
 function profileFromSession(user: { id: string; email?: string; user_metadata?: Record<string, unknown> } | undefined): UserProfile {
   const email = user?.email ?? '';
@@ -24,13 +25,14 @@ function profileFromSession(user: { id: string; email?: string; user_metadata?: 
   };
 }
 
-export default function App() {
+function AppContent() {
   const { session, loading } = useAuth();
+  const { mode, ready } = useAppTheme();
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="light" />
-      {loading ? (
+    <>
+      <StatusBar style={mode === 'light' ? 'dark' : 'light'} />
+      {loading || !ready ? (
         <View style={styles.splash}>
           <ActivityIndicator color={palette.accent} />
         </View>
@@ -39,6 +41,16 @@ export default function App() {
       ) : (
         <AuthScreen />
       )}
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppThemeProvider>
+        <AppContent />
+      </AppThemeProvider>
     </SafeAreaProvider>
   );
 }

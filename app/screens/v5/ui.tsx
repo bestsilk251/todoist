@@ -57,6 +57,7 @@ export function SegmentedControl<T extends string>({
 export function CategoryTag({ name, color, fontSize = 10.5 }: { name: string; color: string; fontSize?: number }) {
   return (
     <Text
+      selectable={false}
       numberOfLines={1}
       ellipsizeMode="tail"
       style={{

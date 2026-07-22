@@ -1,12 +1,13 @@
 /** Secondary overlays: category-color editor, avatar menu, logout confirm,
  * share sheet. Each returns null when its state flag is off. */
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { palette, withAlpha, categorySwatches } from '../../theme';
 import { useV5 } from './store';
 import { PersonPlusIcon, PeopleIcon, PlusIcon, CaretRight } from '../../components/icons';
 import { calculateStreak } from '../../lib/analyticsMath';
 import { SegmentedControl } from './ui';
+import { useAppTheme } from '../../ThemeProvider';
 
 const FRIENDS = [
   { name: 'Олена Коваль', email: 'olena.koval@example.com' },
@@ -290,6 +291,7 @@ function AchievementRow({ item }: { item: Achievement }) {
 
 export function AchievementsSheet() {
   const s = useV5();
+  const { height } = useWindowDimensions();
   const [filter, setFilter] = useState<'all' | 'earned' | 'progress'>('all');
   if (!s.achievementsOpen) return null;
 
@@ -331,7 +333,7 @@ export function AchievementsSheet() {
 
   return (
     <Pressable onPress={s.closeAchievements} style={[styles.overlayEnd, { zIndex: 34 }]}>
-      <Pressable onPress={() => {}} style={[styles.sheet, styles.achievementsSheet]}>
+      <Pressable onPress={() => {}} style={[styles.sheet, styles.achievementsSheet, { height: Math.min(height * 0.9, 760) }]}>
         <View style={styles.grabber} />
         <View style={styles.shareHead}>
           <View>
@@ -353,6 +355,126 @@ export function AchievementsSheet() {
           {filteredStreaks.length ? <><Text style={styles.achievementSection}>Серії днів</Text><View style={styles.achievementCard}>{filteredStreaks.map((item) => <AchievementRow key={item.id} item={item} />)}</View></> : null}
           {filteredCollaboration.length ? <><Text style={styles.achievementSection}>Спільна робота</Text><View style={styles.achievementCard}>{filteredCollaboration.map((item) => <AchievementRow key={item.id} item={item} />)}</View></> : null}
         </ScrollView>
+      </Pressable>
+    </Pressable>
+  );
+}
+
+export function PersonalDataSheet() {
+  const s = useV5();
+  const [nickname, setNickname] = useState(s.userFullName);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!s.personalDataOpen) return;
+    setNickname(s.userFullName);
+    setSaving(false);
+    setError(null);
+  }, [s.personalDataOpen, s.userFullName]);
+
+  if (!s.personalDataOpen) return null;
+
+  const save = async () => {
+    const normalized = nickname.trim().replace(/\s+/g, ' ');
+    if (normalized.length < 2) {
+      setError('Нікнейм має містити щонайменше 2 символи.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const saved = await s.saveNickname(normalized);
+    setSaving(false);
+    if (!saved) setError('Не вдалося зберегти нікнейм. Перевірте з’єднання та повторіть спробу.');
+  };
+
+  return (
+    <Pressable onPress={s.closePersonalData} style={[styles.overlayEnd, { zIndex: 35 }]}>
+      <Pressable onPress={() => {}} style={[styles.sheet, styles.personalSheet]}>
+        <View style={styles.grabber} />
+        <View style={styles.shareHead}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.infoEyebrow}>Особисті дані</Text>
+            <Text style={styles.shareTitle}>Змінити нікнейм</Text>
+          </View>
+          <Pressable onPress={s.closePersonalData} style={styles.closeBtn}><Text style={styles.closeX}>✕</Text></Pressable>
+        </View>
+        <View style={styles.personalContent}>
+          <Text style={styles.fieldLabel}>Нікнейм</Text>
+          <TextInput
+            value={nickname}
+            onChangeText={(value) => { setNickname(value); setError(null); }}
+            placeholder="Як до вас звертатися"
+            placeholderTextColor={palette.textFaint}
+            autoCapitalize="words"
+            autoCorrect={false}
+            maxLength={40}
+            selectTextOnFocus
+            style={[styles.personalInput, error && styles.personalInputError]}
+          />
+          <Text style={styles.fieldHint}>Це ім’я буде показано у привітанні та профілі.</Text>
+          {error ? <Text accessibilityRole="alert" style={styles.fieldError}>{error}</Text> : null}
+        </View>
+        <View style={styles.personalFooter}>
+          <Pressable onPress={s.closePersonalData} disabled={saving} style={styles.secondaryBtn}><Text style={styles.secondaryText}>Скасувати</Text></Pressable>
+          <Pressable onPress={() => { void save(); }} disabled={saving} style={[styles.primaryBtn, saving && styles.buttonDisabled]}>
+            <Text style={styles.primaryText}>{saving ? 'Зберігаємо…' : 'Зберегти'}</Text>
+          </Pressable>
+        </View>
+      </Pressable>
+    </Pressable>
+  );
+}
+
+export function AppearanceSheet() {
+  const s = useV5();
+  const { mode, setMode } = useAppTheme();
+  if (!s.appearanceOpen) return null;
+
+  const options = [
+    { value: 'dark' as const, title: 'Темна', description: 'Глибокий чорний фон і червоні акценти', preview: '#0B0B0D' },
+    { value: 'light' as const, title: 'Світла', description: 'Світлі поверхні та контрастний темний текст', preview: '#FAFAFB' },
+  ];
+
+  return (
+    <Pressable onPress={s.closeAppearance} style={[styles.overlayEnd, { zIndex: 35 }]}>
+      <Pressable onPress={() => {}} style={[styles.sheet, styles.appearanceSheet]}>
+        <View style={styles.grabber} />
+        <View style={styles.shareHead}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.infoEyebrow}>Оформлення</Text>
+            <Text style={styles.shareTitle}>Оберіть тему</Text>
+          </View>
+          <Pressable onPress={s.closeAppearance} style={styles.closeBtn}><Text style={styles.closeX}>✕</Text></Pressable>
+        </View>
+        <View style={styles.appearanceOptions}>
+          {options.map((option) => {
+            const selected = mode === option.value;
+            return (
+              <Pressable
+                key={option.value}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                onPress={() => setMode(option.value)}
+                style={[styles.themeOption, selected && styles.themeOptionSelected]}
+              >
+                <View style={[styles.themePreview, { backgroundColor: option.preview }]}>
+                  <View style={styles.themePreviewAccent} />
+                  <View style={[styles.themePreviewLine, option.value === 'light' && styles.themePreviewLineLight]} />
+                  <View style={[styles.themePreviewLine, styles.themePreviewLineShort, option.value === 'light' && styles.themePreviewLineLight]} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.themeTitle}>{option.title}</Text>
+                  <Text style={styles.themeDescription}>{option.description}</Text>
+                </View>
+                <View style={[styles.radio, selected && styles.radioSelected]}>{selected ? <View style={styles.radioDot} /> : null}</View>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.infoFooter}>
+          <Pressable onPress={s.closeAppearance} style={styles.primaryBtn}><Text style={styles.primaryText}>Готово</Text></Pressable>
+        </View>
       </Pressable>
     </Pressable>
   );
@@ -491,7 +613,7 @@ const styles = StyleSheet.create({
   shareSuccess: { marginHorizontal: 20, marginBottom: 4, padding: 12, borderRadius: 12, backgroundColor: withAlpha(palette.badgeGreen, 0.12), borderWidth: 1, borderColor: withAlpha(palette.badgeGreen, 0.34) },
   shareSuccessText: { color: palette.badgeGreen, fontSize: 13, fontWeight: '600' },
   shareSuccessSub: { color: palette.textMuted, fontSize: 11.5, marginTop: 3 },
-  achievementsSheet: { maxHeight: '90%', paddingBottom: 8 },
+  achievementsSheet: { paddingBottom: 8 },
   achievementFilters: { paddingHorizontal: 20, paddingTop: 10 },
   achievementsContent: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 30 },
   achievementSection: { fontSize: 11.5, fontWeight: '700', color: palette.textMuted, letterSpacing: 0.6, textTransform: 'uppercase', marginTop: 12, marginBottom: 8 },
@@ -509,6 +631,29 @@ const styles = StyleSheet.create({
   achievementTrack: { height: 4, marginTop: 7, borderRadius: 2, overflow: 'hidden', backgroundColor: palette.chip },
   achievementFill: { height: '100%', borderRadius: 2 },
   infoSheet: { maxHeight: '84%' },
+  personalSheet: { paddingBottom: 8 },
+  personalContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 18 },
+  fieldLabel: { color: palette.textSecondary, fontSize: 12.5, fontWeight: '700', marginBottom: 8 },
+  personalInput: { minHeight: 52, color: palette.text, fontSize: 16, paddingHorizontal: 14, borderRadius: 14, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.borderStrong },
+  personalInputError: { borderColor: palette.accent },
+  fieldHint: { color: palette.textFaint, fontSize: 11.5, lineHeight: 16, marginTop: 7 },
+  fieldError: { color: palette.accentSoftText, fontSize: 11.5, lineHeight: 16, marginTop: 7 },
+  personalFooter: { flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16, borderTopWidth: 1, borderTopColor: palette.borderFaint },
+  buttonDisabled: { opacity: 0.55 },
+  appearanceSheet: { paddingBottom: 8 },
+  appearanceOptions: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 8, gap: 10 },
+  themeOption: { minHeight: 82, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 15, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
+  themeOptionSelected: { borderColor: palette.accent, backgroundColor: withAlpha(palette.accent, 0.07) },
+  themePreview: { width: 54, height: 58, borderRadius: 12, padding: 9, borderWidth: 1, borderColor: palette.borderStrong, overflow: 'hidden' },
+  themePreviewAccent: { width: 24, height: 5, borderRadius: 3, marginBottom: 9, backgroundColor: palette.accent },
+  themePreviewLine: { width: '100%', height: 4, borderRadius: 2, marginBottom: 6, backgroundColor: '#4A4A50' },
+  themePreviewLineShort: { width: '68%' },
+  themePreviewLineLight: { backgroundColor: '#C6C6CC' },
+  themeTitle: { color: palette.text, fontSize: 14.5, fontWeight: '700' },
+  themeDescription: { color: palette.textMuted, fontSize: 11.5, lineHeight: 16, marginTop: 3 },
+  radio: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: palette.borderStrong },
+  radioSelected: { borderColor: palette.accent },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: palette.accent },
   infoEyebrow: { fontSize: 11, fontWeight: '700', color: palette.accent, letterSpacing: 0.7, textTransform: 'uppercase', marginBottom: 3 },
   infoContent: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8, gap: 12 },
   infoLead: { color: palette.textSecondary, fontSize: 14, lineHeight: 21 },

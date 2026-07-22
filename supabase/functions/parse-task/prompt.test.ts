@@ -19,6 +19,17 @@ Deno.test("prompt injects the supplied current date", () => {
   assert(prompt.includes("2026-07-21"), "tomorrow should be pre-computed in examples");
 });
 
+Deno.test("prompt includes real category labels and requires an exact category field", () => {
+  const prompt = buildSystemPrompt({
+    currentDate: "2026-07-20",
+    timezone: "Europe/Kyiv",
+    categories: ["Робота", "Подорожі"],
+  });
+  assert(prompt.includes('"Подорожі"'));
+  assert(prompt.includes('"category"'));
+  assert(prompt.includes("Never invent a category"));
+});
+
 Deno.test("addDays rolls over month boundaries", () => {
   assertEquals(addDays("2026-07-31", 1), "2026-08-01");
   assertEquals(addDays("2026-12-31", 1), "2027-01-01");

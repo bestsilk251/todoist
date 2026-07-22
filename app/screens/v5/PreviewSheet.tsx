@@ -1,28 +1,72 @@
 /** Bottom sheet showing parsed tasks for review before saving. */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { palette, withAlpha } from '../../theme';
 import { previewDateLabel } from '../../lib/tasksRepo';
+import { parseDurationMinutes } from '../../lib/analyticsMath';
 import { useV5 } from './store';
+import PreviewDatePicker from './PreviewDatePicker';
+
+const DURATION_PRESETS = [15, 30, 45, 60, 90, 120];
+
+function formatPreviewDuration(minutes: number): string {
+  const safeMinutes = Math.max(15, Math.min(24 * 60, Math.round(minutes)));
+  const hours = Math.floor(safeMinutes / 60);
+  const rest = safeMinutes % 60;
+  return `${hours ? `${hours} год` : ''}${rest ? ` ${rest} хв` : ''}`.trim();
+}
 
 export default function PreviewSheet() {
   const s = useV5();
+  const [dateTargetId, setDateTargetId] = useState<string | null>(null);
+  const [categoryTargetId, setCategoryTargetId] = useState<string | null>(null);
+  const [durationTargetId, setDurationTargetId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!s.previewOpen) {
+      setDateTargetId(null);
+      setCategoryTargetId(null);
+      setDurationTargetId(null);
+    }
+  }, [s.previewOpen]);
   if (!s.previewOpen) return null;
 
-  return (
-    <View style={styles.overlay}>
-      <View style={styles.sheet}>
-        <View style={styles.head}>
-          <Text style={styles.title}>Перевірте задачі</Text>
-          <Text style={styles.subtitle}>Ми розпізнали декілька задач. Перевірте інформацію перед збереженням.</Text>
-        </View>
+  const dateTarget = s.previewTasks.find((task) => task.id === dateTargetId) ?? null;
 
-        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+  return (
+    <>
+      <View style={styles.overlay}>
+        <Pressable
+          testID="preview-save-backdrop"
+          accessibilityRole="button"
+          accessibilityLabel="Зберегти задачі, натиснувши поза шторкою"
+          accessibilityHint="Виконує ту саму дію, що й кнопка Зберегти всі задачі"
+          onPress={s.confirmSave}
+          style={({ pressed }) => [styles.saveBackdrop, pressed && styles.saveBackdropPressed]}
+        >
+          <Text style={styles.backdropHint}>Торкніться поза шторкою, щоб зберегти</Text>
+        </Pressable>
+        <View style={styles.sheet}>
+          <View style={styles.head}>
+            <Text style={styles.title}>Перевірте задачі</Text>
+            <Text style={styles.subtitle}>Ми розпізнали декілька задач. Перевірте інформацію перед збереженням.</Text>
+          </View>
+
+          {s.previewError ? (
+            <View accessibilityRole="alert" style={styles.errorBanner}>
+              <Text style={styles.errorTitle}>Неможливо зберегти задачу</Text>
+              <Text style={styles.errorText}>{s.previewError}</Text>
+            </View>
+          ) : null}
+
+          <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
           {s.previewTasks.map((p) => {
             const editing = s.editingPreviewId === p.id;
+            const choosingCategory = categoryTargetId === p.id;
+            const choosingDuration = durationTargetId === p.id;
             const cat = s.categories[p.category] || palette.textFaint;
+            const currentDuration = parseDurationMinutes(p.duration) ?? 60;
             const cardBorder = editing ? palette.accent : p.needsConfirmation ? palette.accentDeep : palette.border;
-            const cardBg = p.needsConfirmation ? 'rgba(143,29,36,0.28)' : palette.surface;
+            const cardBg = p.needsConfirmation ? withAlpha(palette.accentDeep, 0.14) : palette.surface;
             return (
               <Pressable key={p.id} onPress={() => s.togglePreviewEdit(p.id)} style={[styles.card, { backgroundColor: cardBg, borderColor: cardBorder }]}>
                 <View style={styles.cardTop}>
@@ -40,20 +84,121 @@ export default function PreviewSheet() {
                 </View>
 
                 <View style={styles.tags}>
-                  <Pressable onPress={() => s.cyclePreviewDate(p.id)} style={styles.pill}><Text style={styles.pillText}>{previewDateLabel(p.iso)}</Text></Pressable>
+                  <Pressable onPress={() => setDateTargetId(p.id)} style={styles.datePill}>
+                    <Text style={styles.datePillText}>{previewDateLabel(p.iso)}</Text>
+                  </Pressable>
                   {editing ? (
                     <Pressable onPress={() => s.openTimePicker(p.id)} style={styles.timePill}><Text style={styles.timePillText}>{p.time || 'Час ⏱'}</Text></Pressable>
                   ) : p.time ? (
                     <Text style={styles.pillStatic}>{p.time}</Text>
                   ) : null}
-                  {p.duration ? <Text style={styles.pillStatic}>{p.duration}</Text> : null}
-                  <Pressable onPress={() => s.cyclePreviewCategory(p.id)} style={{ backgroundColor: withAlpha(cat, 0.15), paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
-                    <Text style={{ fontSize: 11, color: withAlpha(cat, 0.9) }}>{p.category}</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: choosingDuration }}
+                    accessibilityLabel={`Змінити тривалість задачі ${p.title}`}
+                    onPress={(event) => {
+                      event?.stopPropagation?.();
+                      setDurationTargetId(choosingDuration ? null : p.id);
+                      setCategoryTargetId(null);
+                    }}
+                    style={[styles.editablePill, choosingDuration && styles.editablePillActive]}
+                  >
+                    <Text style={[styles.editablePillText, choosingDuration && styles.editablePillTextActive]}>{p.duration || 'Тривалість'}</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: choosingCategory }}
+                    accessibilityLabel={`Змінити категорію задачі ${p.title}`}
+                    onPress={(event) => {
+                      event?.stopPropagation?.();
+                      setCategoryTargetId(choosingCategory ? null : p.id);
+                      setDurationTargetId(null);
+                    }}
+                    style={[styles.categoryPill, { backgroundColor: withAlpha(cat, 0.15), borderColor: choosingCategory ? cat : 'transparent' }]}
+                  >
+                    <View style={[styles.categoryDot, { backgroundColor: cat }]} />
+                    <Text numberOfLines={1} style={[styles.categoryPillText, { color: withAlpha(cat, 0.95) }]}>{p.category}</Text>
                   </Pressable>
                   {p.important ? (
                     <Pressable onPress={() => s.togglePreviewImportant(p.id)} style={styles.importantPill}><Text style={styles.importantText}>Важливо</Text></Pressable>
                   ) : null}
                 </View>
+
+                {choosingDuration ? (
+                  <View style={styles.optionPanel}>
+                    <View style={styles.optionPanelHeader}>
+                      <View>
+                        <Text style={styles.optionPanelTitle}>Тривалість</Text>
+                        <Text style={styles.optionPanelHint}>Запланований час виконання</Text>
+                      </View>
+                      <Pressable onPress={(event) => { event?.stopPropagation?.(); setDurationTargetId(null); }} style={styles.optionDone}><Text style={styles.optionDoneText}>Готово</Text></Pressable>
+                    </View>
+                    <View style={styles.durationStepper}>
+                      <Pressable
+                        accessibilityLabel="Зменшити тривалість на 15 хвилин"
+                        disabled={currentDuration <= 15}
+                        onPress={(event) => { event?.stopPropagation?.(); s.updatePreviewField(p.id, 'duration', formatPreviewDuration(currentDuration - 15)); }}
+                        style={[styles.stepButton, currentDuration <= 15 && styles.stepButtonDisabled]}
+                      ><Text style={styles.stepButtonText}>−15</Text></Pressable>
+                      <Text style={styles.durationValue}>{formatPreviewDuration(currentDuration)}</Text>
+                      <Pressable
+                        accessibilityLabel="Збільшити тривалість на 15 хвилин"
+                        disabled={currentDuration >= 24 * 60}
+                        onPress={(event) => { event?.stopPropagation?.(); s.updatePreviewField(p.id, 'duration', formatPreviewDuration(currentDuration + 15)); }}
+                        style={[styles.stepButton, currentDuration >= 24 * 60 && styles.stepButtonDisabled]}
+                      ><Text style={styles.stepButtonText}>+15</Text></Pressable>
+                    </View>
+                    <View style={styles.durationPresets}>
+                      {DURATION_PRESETS.map((minutes) => {
+                        const active = currentDuration === minutes;
+                        const label = formatPreviewDuration(minutes);
+                        return (
+                          <Pressable
+                            key={minutes}
+                            accessibilityLabel={`Встановити тривалість ${label}`}
+                            accessibilityState={{ selected: active }}
+                            onPress={(event) => { event?.stopPropagation?.(); s.updatePreviewField(p.id, 'duration', label); }}
+                            style={[styles.durationPreset, active && styles.durationPresetActive]}
+                          ><Text style={[styles.durationPresetText, active && styles.durationPresetTextActive]}>{label}</Text></Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+
+                {choosingCategory ? (
+                  <View style={styles.optionPanel}>
+                    <View style={styles.optionPanelHeader}>
+                      <View>
+                        <Text style={styles.optionPanelTitle}>Категорія</Text>
+                        <Text style={styles.optionPanelHint}>Оберіть одну зі своїх категорій</Text>
+                      </View>
+                      <Pressable onPress={(event) => { event?.stopPropagation?.(); setCategoryTargetId(null); }} style={styles.optionDone}><Text style={styles.optionDoneText}>Закрити</Text></Pressable>
+                    </View>
+                    <View style={styles.categoryOptions}>
+                      {Object.entries(s.categories).map(([category, color]) => {
+                        const active = category === p.category;
+                        return (
+                          <Pressable
+                            key={category}
+                            accessibilityLabel={`Обрати категорію ${category}`}
+                            accessibilityState={{ selected: active }}
+                            onPress={(event) => {
+                              event?.stopPropagation?.();
+                              s.updatePreviewField(p.id, 'category', category);
+                              setCategoryTargetId(null);
+                            }}
+                            style={[styles.categoryOption, active && { borderColor: color, backgroundColor: withAlpha(color, 0.12) }]}
+                          >
+                            <View style={[styles.categoryOptionDot, { backgroundColor: color }]} />
+                            <Text numberOfLines={1} style={[styles.categoryOptionText, active && { color }]}>{category}</Text>
+                            {active ? <Text style={[styles.categoryOptionCheck, { color }]}>✓</Text> : null}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
 
                 {p.needsConfirmation ? (
                   <View style={styles.confirmRow}>
@@ -64,30 +209,45 @@ export default function PreviewSheet() {
                         <Text style={styles.confirmSub}>Оберіть точний час</Text>
                       </View>
                     </View>
-                    <Pressable onPress={() => s.resolvePreviewTime(p.id)} style={styles.resolveBtn}><Text style={styles.resolveText}>19:00</Text></Pressable>
+                    <Pressable onPress={() => s.openTimePicker(p.id)} style={styles.resolveBtn}><Text style={styles.resolveText}>Обрати</Text></Pressable>
                   </View>
                 ) : null}
               </Pressable>
             );
           })}
-        </ScrollView>
+          </ScrollView>
 
-        <View style={styles.footer}>
-          <Pressable onPress={s.cancelPreview} style={styles.cancelBtn}><Text style={styles.cancelText}>Скасувати</Text></Pressable>
-          <Pressable onPress={s.confirmSave} style={styles.saveBtn}><Text style={styles.saveText}>Зберегти всі задачі</Text></Pressable>
+          <View style={styles.footer}>
+            <Pressable onPress={s.cancelPreview} style={styles.cancelBtn}><Text style={styles.cancelText}>Скасувати</Text></Pressable>
+            <Pressable onPress={s.confirmSave} style={styles.saveBtn}><Text style={styles.saveText}>Зберегти всі задачі</Text></Pressable>
+          </View>
         </View>
       </View>
-    </View>
+      <PreviewDatePicker
+        visible={dateTarget != null}
+        value={dateTarget?.iso ?? null}
+        onClose={() => setDateTargetId(null)}
+        onSelect={(iso) => {
+          if (dateTargetId) s.updatePreviewField(dateTargetId, 'iso', iso);
+        }}
+      />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end', zIndex: 30 },
+  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 30 },
+  saveBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 20, paddingBottom: 10 },
+  saveBackdropPressed: { backgroundColor: 'rgba(255,255,255,0.02)' },
+  backdropHint: { color: palette.textFaint, fontSize: 11.5, fontWeight: '600', textAlign: 'center' },
   sheet: { backgroundColor: palette.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: palette.border, maxHeight: '86%' },
   head: { paddingTop: 22, paddingHorizontal: 20, paddingBottom: 10 },
   title: { fontSize: 19, fontWeight: '700', color: palette.text },
   subtitle: { fontSize: 13, color: palette.textMuted, marginTop: 4, lineHeight: 18 },
   list: { paddingHorizontal: 20, paddingVertical: 6 },
+  errorBanner: { marginHorizontal: 20, marginBottom: 4, padding: 12, borderRadius: 12, backgroundColor: withAlpha(palette.accent, 0.1), borderWidth: 1, borderColor: withAlpha(palette.accent, 0.38) },
+  errorTitle: { color: palette.accent, fontSize: 12.5, fontWeight: '700' },
+  errorText: { color: palette.accentSoftText, fontSize: 11.5, lineHeight: 16, marginTop: 3 },
   card: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 10 },
   cardTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
   cardTitle: { fontSize: 15, fontWeight: '600', color: palette.text, flex: 1 },
@@ -95,13 +255,41 @@ const styles = StyleSheet.create({
   deleteBtn: { width: 28, height: 28, borderRadius: 8, backgroundColor: palette.chip, alignItems: 'center', justifyContent: 'center' },
   deleteX: { color: palette.textMuted, fontSize: 14 },
   tags: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' },
-  pill: { backgroundColor: palette.chip, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
-  pillText: { fontSize: 11, color: palette.textMuted },
+  datePill: { minHeight: 30, justifyContent: 'center', backgroundColor: withAlpha(palette.accent, 0.08), borderWidth: 1, borderColor: withAlpha(palette.accent, 0.24), paddingHorizontal: 10, paddingVertical: 4, borderRadius: 9 },
+  datePillText: { fontSize: 11, color: palette.accent, fontWeight: '600' },
   pillStatic: { fontSize: 11, color: palette.textMuted, backgroundColor: palette.chip, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, overflow: 'hidden' },
+  editablePill: { minHeight: 30, justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 9, backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.border },
+  editablePillActive: { borderColor: palette.accent, backgroundColor: withAlpha(palette.accent, 0.09) },
+  editablePillText: { color: palette.textMuted, fontSize: 11, fontWeight: '600' },
+  editablePillTextActive: { color: palette.accent },
+  categoryPill: { maxWidth: 160, minHeight: 30, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 9, borderWidth: 1 },
+  categoryDot: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },
+  categoryPillText: { minWidth: 0, fontSize: 11, fontWeight: '600' },
   timePill: { backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.textFainter, borderStyle: 'dashed', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   timePillText: { fontSize: 11, color: palette.text },
   importantPill: { backgroundColor: withAlpha(palette.accent, 0.12), paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   importantText: { fontSize: 11, color: palette.accent },
+  optionPanel: { marginTop: 11, padding: 11, borderRadius: 13, backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.border },
+  optionPanelHeader: { minHeight: 38, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 },
+  optionPanelTitle: { color: palette.text, fontSize: 13, fontWeight: '700' },
+  optionPanelHint: { color: palette.textFaint, fontSize: 10.5, marginTop: 2 },
+  optionDone: { minHeight: 34, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 10, backgroundColor: palette.chip },
+  optionDoneText: { color: palette.textSecondary, fontSize: 11, fontWeight: '700' },
+  durationStepper: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  stepButton: { width: 54, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.borderStrong },
+  stepButtonDisabled: { opacity: 0.35 },
+  stepButtonText: { color: palette.textSecondary, fontSize: 13, fontWeight: '700' },
+  durationValue: { flex: 1, color: palette.text, fontSize: 16, fontWeight: '800', textAlign: 'center' },
+  durationPresets: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  durationPreset: { minWidth: 74, minHeight: 38, flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9, borderRadius: 10, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
+  durationPresetActive: { backgroundColor: withAlpha(palette.accent, 0.1), borderColor: palette.accent },
+  durationPresetText: { color: palette.textMuted, fontSize: 11.5, fontWeight: '600' },
+  durationPresetTextActive: { color: palette.accent, fontWeight: '700' },
+  categoryOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  categoryOption: { width: '48%', minHeight: 42, flexGrow: 1, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, borderRadius: 11, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
+  categoryOptionDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  categoryOptionText: { flex: 1, minWidth: 0, color: palette.textSecondary, fontSize: 11.5, fontWeight: '600' },
+  categoryOptionCheck: { fontSize: 12, fontWeight: '800' },
   confirmRow: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: withAlpha(palette.accent, 0.25), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   confirmLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   bang: { width: 16, height: 16, borderRadius: 4, backgroundColor: palette.accent, alignItems: 'center', justifyContent: 'center' },

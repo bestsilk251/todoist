@@ -10,9 +10,10 @@ export default function CategoryDonutChart({ categories, measure }: { categories
   const { width } = useWindowDimensions();
   const compact = width < 370;
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const size = compact ? 172 : 164;
-  const stroke = 27;
-  const radius = (size - stroke) / 2;
+  const size = compact ? 146 : 150;
+  const stroke = compact ? 23 : 24;
+  // Leave room for the selected segment so its wider stroke never clips the card.
+  const radius = (size - stroke - 5) / 2;
   const circumference = 2 * Math.PI * radius;
   const total = useMemo(() => categories.reduce((sum, item) => sum + (measure === 'hours' ? item.plannedMinutes : item.completedTasks), 0), [categories, measure]);
   const percentages = useMemo(() => normalizedCategoryPercentages(categories, measure), [categories, measure]);

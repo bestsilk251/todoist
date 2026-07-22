@@ -30,6 +30,7 @@ export default function ConfirmScreen() {
         due_time: t.time,
         is_all_day: t.is_all_day,
         duration_minutes: !t.is_all_day && t.time ? (t.duration_minutes ?? DEFAULT_TIMED_TASK_DURATION_MINUTES) : (t.duration_minutes ?? null),
+        category: t.category ?? 'Особисте',
         needs_confirmation: t.needs_confirmation,
         source_text: sourceText,
       })),

@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 10,
     borderRadius: 19,
-    backgroundColor: '#111114',
+    backgroundColor: palette.surface,
     borderWidth: 1,
     borderColor: withAlpha(palette.accent, 0.55),
     shadowColor: palette.accent,

@@ -1,7 +1,7 @@
 /** Calendar tab: day timeline (2px/min, now-line, free-window), week load
  * summary and month grid — ported from the v5 mock. */
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, PanResponder, Pressable, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
+import { Animated, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
 import { palette, priorityColor, withAlpha } from '../../theme';
 import { weekShort, monthsGen, dayPhrase, pluralTasks } from '../../lib/v5data';
 import type { V5Task } from '../../lib/v5data';
@@ -364,6 +364,7 @@ function DraggableCalendarEvent({
   const durationMinutes = Math.max(30, event.endMinutes - event.startMinutes);
   const draggable = !event.completed && !event.cancelled;
   const translateY = useRef(new Animated.Value(0)).current;
+  const dragSurfaceRef = useRef<View>(null);
   const longPressReady = useRef(false);
   const gestureActive = useRef(false);
   const suppressPress = useRef(false);
@@ -382,6 +383,18 @@ function DraggableCalendarEvent({
     setPreviewStart(event.startMinutes);
     translateY.setValue(0);
   }, [event.startMinutes, translateY]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return undefined;
+    const node = dragSurfaceRef.current as unknown as HTMLElement | null;
+    if (!node) return undefined;
+    const preventContextMenu = (contextEvent: Event) => contextEvent.preventDefault();
+    node.style.setProperty('touch-action', 'none');
+    node.style.setProperty('-webkit-user-select', 'none');
+    node.style.setProperty('-webkit-touch-callout', 'none');
+    node.addEventListener('contextmenu', preventContextMenu);
+    return () => node.removeEventListener('contextmenu', preventContextMenu);
+  }, []);
 
   const finishDrag = (save: boolean) => {
     const currentEvent = eventRef.current;
@@ -402,10 +415,10 @@ function DraggableCalendarEvent({
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => false,
     onMoveShouldSetPanResponder: (_event, gesture) => (
-      longPressReady.current && Math.abs(gesture.dy) > 2
+      longPressReady.current && Math.abs(gesture.dy) > 1
     ),
     onMoveShouldSetPanResponderCapture: (_event, gesture) => (
-      longPressReady.current && Math.abs(gesture.dy) > 2
+      longPressReady.current && Math.abs(gesture.dy) > 1
     ),
     onPanResponderGrant: () => {
       gestureActive.current = true;
@@ -442,13 +455,14 @@ function DraggableCalendarEvent({
           top: timeToY(event.startMinutes),
           height: durationMinutes * PX_PER_MIN,
           borderLeftColor: color,
-          transform: [{ translateY }],
+          transform: [{ translateY }, { scale: dragging ? 1.015 : 1 }],
         },
         dragging && styles.eventCardDragging,
       ]}
     >
       <Pressable
-        delayLongPress={450}
+        ref={dragSurfaceRef}
+        delayLongPress={320}
         onPressIn={() => {
           suppressPress.current = false;
           longPressReady.current = false;
@@ -462,10 +476,13 @@ function DraggableCalendarEvent({
         }}
         onPressOut={() => {
           if (gestureActive.current) return;
+          const wasArmed = longPressReady.current;
           longPressReady.current = false;
-          if (dragging) {
+          if (wasArmed) {
             setDragging(false);
             translateY.setValue(0);
+            previewStartRef.current = eventRef.current.startMinutes;
+            setPreviewStart(eventRef.current.startMinutes);
           }
         }}
         onPress={() => {
@@ -477,17 +494,24 @@ function DraggableCalendarEvent({
         accessibilityHint={draggable
           ? 'Натисніть, щоб відкрити. Затисніть і перетягніть, щоб змінити час із кроком 15 хвилин.'
           : 'Натисніть, щоб відкрити задачу.'}
+        accessibilityActions={draggable ? [{ name: 'increment', label: 'Перенести на 15 хвилин пізніше' }, { name: 'decrement', label: 'Перенести на 15 хвилин раніше' }] : undefined}
+        onAccessibilityAction={draggable ? (actionEvent) => {
+          const direction = actionEvent.nativeEvent.actionName === 'increment' ? 15 : -15;
+          const nextStart = snapTaskStartMinutes(event.startMinutes + direction, durationMinutes, 15);
+          if (nextStart !== event.startMinutes) s.updateTask(event.id, { time: minutesToClock(nextStart) });
+        } : undefined}
         style={styles.eventPressable}
       >
-        <Text style={[styles.eventTime, dragging && styles.eventTimeDragging]}>
+        <Text selectable={false} style={[styles.eventTime, dragging && styles.eventTimeDragging]}>
           {minutesToClock(previewStart)}–{minutesToClock(previewEnd)}
           {dragging ? ' · крок 15 хв' : ''}
         </Text>
-        <Text numberOfLines={2} style={[styles.eventTitle, event.completed && styles.eventTitleDone]}>{event.title}</Text>
+        <Text selectable={false} numberOfLines={2} style={[styles.eventTitle, event.completed && styles.eventTitleDone]}>{event.title}</Text>
         <View style={styles.eventCategory}><CategoryTag name={event.category} color={color} fontSize={9.5} /></View>
         {(event.priority === 'urgent' || event.priority === 'high') ? (
           <View style={styles.eventFlag}><FlagIcon size={13} color={priorityColor(event.priority)} filled /></View>
         ) : null}
+        {draggable ? <Text selectable={false} style={[styles.eventDragGrip, dragging && styles.eventDragGripActive]}>⠿</Text> : null}
       </Pressable>
     </Animated.View>
   );
@@ -651,15 +675,17 @@ const styles = StyleSheet.create({
   preciseLine: { position: 'absolute', left: 44, right: 0, height: 1, backgroundColor: palette.accent, opacity: 0.75 },
   preciseDot: { position: 'absolute', left: 40, width: 6, height: 6, borderRadius: 3, backgroundColor: palette.accent, opacity: 0.9 },
   preciseLabel: { position: 'absolute', left: 0, fontSize: 10.5, fontWeight: '600', color: palette.accent },
-  eventCard: { position: 'absolute', left: 62, right: 0, backgroundColor: palette.surface, borderRadius: 12, borderWidth: 1, borderColor: palette.border, borderLeftWidth: 3, overflow: 'hidden', zIndex: 2 },
+  eventCard: { position: 'absolute', left: 62, right: 0, backgroundColor: palette.surface, borderRadius: 12, borderWidth: 1, borderColor: palette.border, borderLeftWidth: 3, overflow: 'hidden', zIndex: 2, userSelect: 'none' },
   eventCardDragging: { zIndex: 20, elevation: 12, borderColor: withAlpha(palette.accent, 0.82), backgroundColor: palette.surfaceAlt, shadowColor: palette.accent, shadowOpacity: 0.28, shadowRadius: 14, shadowOffset: { width: 0, height: 6 } },
-  eventPressable: { flex: 1, minHeight: 44, paddingHorizontal: 12, paddingVertical: 9 },
+  eventPressable: { flex: 1, minHeight: 44, paddingHorizontal: 12, paddingVertical: 9, userSelect: 'none' },
   eventTime: { fontSize: 11, color: palette.textFaint },
   eventTimeDragging: { color: palette.accent, fontWeight: '700' },
   eventTitle: { fontSize: 14, color: palette.text, fontWeight: '600', marginTop: 3, paddingRight: 72 },
   eventTitleDone: { color: palette.textFaint, textDecorationLine: 'line-through' },
   eventCategory: { position: 'absolute', top: 9, right: 32 },
   eventFlag: { position: 'absolute', top: 11, right: 10 },
+  eventDragGrip: { position: 'absolute', right: 9, bottom: 5, color: palette.textFainter, fontSize: 16, lineHeight: 18, userSelect: 'none' },
+  eventDragGripActive: { color: palette.accent },
   freeWindow: { position: 'absolute', left: 62, right: 0, borderRadius: 12, borderWidth: 1.5, borderColor: palette.chipBorder, borderStyle: 'dashed', paddingHorizontal: 14, justifyContent: 'center', backgroundColor: withAlpha(palette.bg, 0.84) },
   freeWindowTitle: { fontSize: 13.5, color: palette.text, fontWeight: '600' },
   freeWindowSub: { fontSize: 11.5, color: palette.textMuted, marginTop: 2 },

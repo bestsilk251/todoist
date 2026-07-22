@@ -15,6 +15,7 @@ import { getSupabaseClient } from '../../lib/supabase';
 import {
   fetchTasks, insertTasks, setStatus, removeTask, parseTaskText,
   rowToV5, previewFromParsed, previewToInsert, isoOf, isoFromOffset,
+  isPreviewScheduledInPast,
   updateTaskFields as persistTaskFields,
 } from '../../lib/tasksRepo';
 import type { EditableTaskFields } from '../../lib/tasksRepo';
@@ -45,10 +46,12 @@ interface V5State {
   previewOpen: boolean;
   previewTasks: PreviewTask[];
   editingPreviewId: string | null;
+  previewError: string | null;
   timePickerId: string | null;
   timePickerHour: number;
   timePickerMinute: number;
   timePickerTarget: 'preview' | 'task-start' | 'task-end' | null;
+  timePickerError: string | null;
   categoryEditorOpen: boolean;
   showCompleted: boolean;
   showOverdue: boolean;
@@ -71,6 +74,9 @@ interface V5State {
   shareSuccessName: string | null;
   sharedTaskCount: number;
   achievementsOpen: boolean;
+  personalDataOpen: boolean;
+  appearanceOpen: boolean;
+  notificationsEnabled: boolean;
   securityInfoOpen: boolean;
   aboutAppOpen: boolean;
   usageGuideOpen: boolean;
@@ -98,10 +104,12 @@ const initialState: V5State = {
   previewOpen: false,
   previewTasks: [],
   editingPreviewId: null,
+  previewError: null,
   timePickerId: null,
   timePickerHour: 9,
   timePickerMinute: 0,
   timePickerTarget: null,
+  timePickerError: null,
   categoryEditorOpen: false,
   showCompleted: false,
   showOverdue: false,
@@ -124,6 +132,9 @@ const initialState: V5State = {
   shareSuccessName: null,
   sharedTaskCount: 0,
   achievementsOpen: false,
+  personalDataOpen: false,
+  appearanceOpen: false,
+  notificationsEnabled: true,
   securityInfoOpen: false,
   aboutAppOpen: false,
   usageGuideOpen: false,
@@ -215,6 +226,12 @@ export interface V5Store extends V5State {
   updateTask: (id: string, fields: EditableTaskFields) => void;
   openAchievements: () => void;
   closeAchievements: () => void;
+  openPersonalData: () => void;
+  closePersonalData: () => void;
+  saveNickname: (nickname: string) => Promise<boolean>;
+  openAppearance: () => void;
+  closeAppearance: () => void;
+  toggleNotifications: () => void;
   openSecurityInfo: () => void;
   closeSecurityInfo: () => void;
   openAboutApp: () => void;
@@ -253,6 +270,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
   const guideIdentity = profile?.id || profile?.email || 'local';
   const categoryStorageKey = `voice-todo:category-colors:${profile?.email || 'local'}`;
   const taskOrderStorageKey = `voice-todo:task-order:${profile?.email || 'local'}`;
+  const notificationStorageKey = `voice-todo:notifications:${profile?.email || 'local'}`;
   const [state, setState] = useState<V5State>(() =>
     profile
       ? { ...initialState, userName: profile.name, userFullName: profile.fullName, userEmail: profile.email, userInitials: profile.initials }
@@ -298,6 +316,17 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
     }).catch(() => { /* keep the default palette */ });
     return () => { active = false; };
   }, [categoryStorageKey]);
+
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(notificationStorageKey)
+      .then((value) => {
+        if (!active || value == null) return;
+        setState((current) => ({ ...current, notificationsEnabled: value !== 'false' }));
+      })
+      .catch(() => { /* keep notifications enabled by default */ });
+    return () => { active = false; };
+  }, [notificationStorageKey]);
 
   useEffect(() => {
     if (!profile?.usageGuidePending) return undefined;
@@ -356,22 +385,37 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
   }, []);
 
   const openPreviewFromText = useCallback(async (text: string) => {
-    const parsed = await parseTaskText(text);
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const categoryNames = Object.keys(state.categories);
+    const parsed = await Promise.race([
+      parseTaskText(text, categoryNames),
+      new Promise<Awaited<ReturnType<typeof parseTaskText>>>((resolve) => {
+        timeout = setTimeout(() => resolve([]), 8000);
+      }),
+    ]);
+    if (timeout) clearTimeout(timeout);
     const inferred = extractScheduleFromText(text);
     const items: PreviewTask[] = parsed.length
-      ? parsed.map((p) => previewFromParsed(p, 'p' + nextPreviewId.current++))
+      ? parsed.map((p) => previewFromParsed(p, 'p' + nextPreviewId.current++, categoryNames, text))
       : [{
           id: 'p' + nextPreviewId.current++,
           title: text,
           iso: isoOf(new Date()),
           time: inferred?.startTime ?? '',
           duration: inferred ? `${inferred.durationMinutes} хв` : '',
-          category: 'Особисте',
+          category: previewFromParsed({
+            title: text,
+            date: null,
+            time: inferred?.startTime ?? null,
+            is_all_day: inferred == null,
+            needs_confirmation: false,
+            duration_minutes: inferred?.durationMinutes ?? null,
+          }, 'fallback', categoryNames, text).category,
           important: false,
           needsConfirmation: false,
         }];
-    setState((s) => ({ ...s, voiceState: 'idle', previewTasks: items, previewOpen: true }));
-  }, []);
+    setState((s) => ({ ...s, voiceState: 'idle', previewTasks: items, previewOpen: true, previewError: null }));
+  }, [state.categories]);
 
   const store = useMemo<V5Store>(() => {
     const api: V5Store = {
@@ -473,6 +517,8 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
 
       openMic: () => {
         buzz(15);
+        try { recognitionRef.current?.abort(); } catch { /* ignore a stale recorder */ }
+        recognitionRef.current = null;
         recordSecondsRef.current = 0;
         pausedRef.current = false;
         finishedRef.current = false;
@@ -529,18 +575,27 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       cancelVoice: () => {
         finishedRef.current = true;
         if (recordTimer.current) clearInterval(recordTimer.current);
+        recordTimer.current = null;
         clearSilenceTimer();
         try { recognitionRef.current?.abort(); } catch { /* ignore */ }
         recognitionRef.current = null;
         buzz(15);
-        set({ voiceState: 'idle' });
+        set({ voiceState: 'idle', recordSeconds: 0, partialText: '', isPaused: false });
       },
       finishVoice: () => {
+        if (finishedRef.current) return;
         finishedRef.current = true;
         if (recordTimer.current) clearInterval(recordTimer.current);
+        recordTimer.current = null;
         clearSilenceTimer();
-        const hadRecognition = !!recognitionRef.current;
-        try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+        const recognition = recognitionRef.current;
+        const hadRecognition = !!recognition;
+        if (recognition) {
+          recognition.onend = null;
+          recognition.onerror = null;
+          recognition.onresult = null;
+        }
+        try { recognition?.stop(); } catch { /* ignore */ }
         recognitionRef.current = null;
         buzz([0, 10, 30, 10]);
         set({ voiceState: 'processing' });
@@ -566,11 +621,14 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
         set({ previewTasks: [pt], previewOpen: true });
       },
 
-      deletePreviewTask: (id) => set((s) => ({ previewTasks: s.previewTasks.filter((p) => p.id !== id) })),
+      deletePreviewTask: (id) => set((s) => ({ previewTasks: s.previewTasks.filter((p) => p.id !== id), previewError: null })),
       resolvePreviewTime: (id) => set((s) => ({ previewTasks: s.previewTasks.map((p) => (p.id === id ? { ...p, time: '19:00', needsConfirmation: false } : p)) })),
-      cancelPreview: () => set({ previewOpen: false, previewTasks: [], editingPreviewId: null }),
+      cancelPreview: () => set({ previewOpen: false, previewTasks: [], editingPreviewId: null, previewError: null }),
       togglePreviewEdit: (id) => set((s) => ({ editingPreviewId: s.editingPreviewId === id ? null : id })),
-      updatePreviewField: (id, field, value) => set((s) => ({ previewTasks: s.previewTasks.map((p) => (p.id === id ? ({ ...p, [field]: value } as PreviewTask) : p)) })),
+      updatePreviewField: (id, field, value) => set((s) => ({
+        previewTasks: s.previewTasks.map((p) => (p.id === id ? ({ ...p, [field]: value } as PreviewTask) : p)),
+        previewError: null,
+      })),
       cyclePreviewDate: (id) => {
         const opts = [isoFromOffset(0), isoFromOffset(1), isoFromOffset(4)];
         set((s) => ({
@@ -587,8 +645,17 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       },
       togglePreviewImportant: (id) => set((s) => ({ previewTasks: s.previewTasks.map((p) => (p.id === id ? { ...p, important: !p.important } : p)) })),
       confirmSave: () => {
+        const invalidTask = state.previewTasks.find((task) => isPreviewScheduledInPast(task));
+        if (invalidTask) {
+          set({
+            editingPreviewId: invalidTask.id,
+            previewError: 'Не можна створити задачу в минулому. Оберіть поточний або майбутній час.',
+          });
+          buzz([0, 20, 40, 20]);
+          return;
+        }
         const payloads = state.previewTasks.map(previewToInsert);
-        set({ previewOpen: false, previewTasks: [], editingPreviewId: null });
+        set({ previewOpen: false, previewTasks: [], editingPreviewId: null, previewError: null });
         insertTasks(payloads)
           .then((rows) => {
             if (rows.length === 0) { reload(); return; }
@@ -609,7 +676,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       openTimePicker: (id) => {
         const p = state.previewTasks.find((t) => t.id === id);
         const [h, m] = p && p.time ? p.time.split(':').map(Number) : [9, 0];
-        set({ timePickerId: id, timePickerTarget: 'preview', timePickerHour: h, timePickerMinute: m });
+        set({ timePickerId: id, timePickerTarget: 'preview', timePickerHour: h, timePickerMinute: m, timePickerError: null });
       },
       openTaskTimePicker: (id) => {
         const task = state.tasks.find((item) => item.id === id);
@@ -617,7 +684,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
         const [h, m] = task?.time
           ? task.time.split(':').map(Number)
           : [now.getHours(), Math.floor(now.getMinutes() / 5) * 5];
-        set({ timePickerId: id, timePickerTarget: 'task-start', timePickerHour: h, timePickerMinute: m });
+        set({ timePickerId: id, timePickerTarget: 'task-start', timePickerHour: h, timePickerMinute: m, timePickerError: null });
       },
       openTaskEndTimePicker: (id) => {
         const task = state.tasks.find((item) => item.id === id);
@@ -629,12 +696,13 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
           timePickerTarget: 'task-end',
           timePickerHour: Math.floor(endMinutes / 60),
           timePickerMinute: endMinutes % 60,
+          timePickerError: null,
         });
       },
-      closeTimePicker: () => set({ timePickerId: null, timePickerTarget: null }),
-      setTimePickerHour: (h) => set({ timePickerHour: ((h % 24) + 24) % 24 }),
-      setTimePickerMinute: (m) => set({ timePickerMinute: ((m % 60) + 60) % 60 }),
-      applyTimePreset: (h, m) => set({ timePickerHour: h, timePickerMinute: m }),
+      closeTimePicker: () => set({ timePickerId: null, timePickerTarget: null, timePickerError: null }),
+      setTimePickerHour: (h) => set({ timePickerHour: ((h % 24) + 24) % 24, timePickerError: null }),
+      setTimePickerMinute: (m) => set({ timePickerMinute: ((m % 60) + 60) % 60, timePickerError: null }),
+      applyTimePreset: (h, m) => set({ timePickerHour: h, timePickerMinute: m, timePickerError: null }),
       confirmTimePicker: () => {
         const id = state.timePickerId;
         if (!id) return;
@@ -652,6 +720,12 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
           set({ timePickerId: null, timePickerTarget: null });
           return;
         }
+        const previewTask = state.previewTasks.find((item) => item.id === id);
+        if (previewTask && isPreviewScheduledInPast({ ...previewTask, time })) {
+          set({ timePickerError: 'Цей час уже минув. Оберіть поточний або майбутній час.' });
+          buzz([0, 20, 40, 20]);
+          return;
+        }
         set((current) => ({
           previewTasks: current.previewTasks.map((p) => (p.id === id ? {
             ...p,
@@ -661,6 +735,8 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
           } : p)),
           timePickerId: null,
           timePickerTarget: null,
+          timePickerError: null,
+          previewError: null,
         }));
       },
 
@@ -712,6 +788,30 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       },
       openAchievements: () => set({ achievementsOpen: true }),
       closeAchievements: () => set({ achievementsOpen: false }),
+      openPersonalData: () => set({ personalDataOpen: true }),
+      closePersonalData: () => set({ personalDataOpen: false }),
+      saveNickname: async (rawNickname) => {
+        const nickname = rawNickname.trim().replace(/\s+/g, ' ');
+        if (nickname.length < 2 || nickname.length > 40) return false;
+        const { error } = await getSupabaseClient().auth.updateUser({ data: { full_name: nickname } });
+        if (error) return false;
+        const parts = nickname.split(' ');
+        const initials = `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}`.toUpperCase();
+        set({
+          userFullName: nickname,
+          userName: parts[0] || nickname,
+          userInitials: initials || nickname.slice(0, 2).toUpperCase(),
+          personalDataOpen: false,
+        });
+        return true;
+      },
+      openAppearance: () => set({ appearanceOpen: true }),
+      closeAppearance: () => set({ appearanceOpen: false }),
+      toggleNotifications: () => {
+        const enabled = !state.notificationsEnabled;
+        set({ notificationsEnabled: enabled });
+        AsyncStorage.setItem(notificationStorageKey, String(enabled)).catch(() => { /* keep in-memory preference */ });
+      },
       openSecurityInfo: () => set({ securityInfoOpen: true }),
       closeSecurityInfo: () => set({ securityInfoOpen: false }),
       openAboutApp: () => set({ aboutAppOpen: true }),
@@ -805,7 +905,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
     };
     return api;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, onSignOut, reload, openPreviewFromText, clearSilenceTimer, startSilenceTimer, categoryStorageKey, taskOrderStorageKey, guideIdentity, profile?.usageGuidePending]);
+  }, [state, onSignOut, reload, openPreviewFromText, clearSilenceTimer, startSilenceTimer, categoryStorageKey, taskOrderStorageKey, notificationStorageKey, guideIdentity, profile?.usageGuidePending]);
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

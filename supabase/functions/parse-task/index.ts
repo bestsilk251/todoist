@@ -7,6 +7,7 @@ export interface ParseTaskInput {
   text: string;
   currentDate: string;
   timezone: string;
+  categories?: string[];
 }
 
 export interface ParseTaskResult {
@@ -23,9 +24,15 @@ export async function handleParseTask(
   input: ParseTaskInput,
   callLLM: LLMCall,
 ): Promise<ParseTaskResult> {
+  const categories = Array.isArray(input.categories)
+    ? [...new Set(input.categories.filter((value): value is string => typeof value === 'string').map((value) => value.trim()).filter(Boolean))]
+      .slice(0, 40)
+      .map((value) => value.slice(0, 80))
+    : [];
   const systemPrompt = buildSystemPrompt({
     currentDate: input.currentDate,
     timezone: input.timezone,
+    categories,
   });
 
   try {
@@ -43,6 +50,7 @@ export async function handleParseTask(
           is_all_day: true,
           needs_confirmation: true,
           duration_minutes: null,
+          category: null,
         },
       ],
     };

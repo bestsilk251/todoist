@@ -54,3 +54,21 @@ Deno.test("preserves an exact task duration", async () => {
 
   assertEquals(result.tasks[0].duration_minutes, 85);
 });
+
+Deno.test("passes available categories to the prompt and preserves the selected label", async () => {
+  let receivedPrompt = "";
+  const fakeLLM = (prompt: string) => {
+    receivedPrompt = prompt;
+    return Promise.resolve(
+      `[{"title":"Prepare report","date":"2026-07-21","time":"10:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Work"}]`,
+    );
+  };
+
+  const result = await handleParseTask(
+    { text: "prepare report category Work", currentDate: "2026-07-20", timezone: "Europe/Kyiv", categories: ["Personal", "Work"] },
+    fakeLLM,
+  );
+
+  assertEquals(receivedPrompt.includes('"Work"'), true);
+  assertEquals(result.tasks[0].category, "Work");
+});

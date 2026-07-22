@@ -18,7 +18,16 @@ export default function BottomNav() {
   const s = useV5();
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.bar, { height: 66 + insets.bottom, paddingBottom: Math.max(insets.bottom, 6) }]}>
+    <View
+      style={[
+        styles.bar,
+        {
+          left: Math.max(insets.left, 8),
+          right: Math.max(insets.right, 8),
+          bottom: Math.max(insets.bottom, 8),
+        },
+      ]}
+    >
       {ITEMS.map(({ key, label, Icon }) => {
         const active = s.activeTab === key;
         const color = active ? palette.accent : palette.textFaint;
@@ -35,9 +44,11 @@ export default function BottomNav() {
 
 const styles = StyleSheet.create({
   bar: {
-    position: 'absolute', left: 0, right: 0, bottom: 0,
-    backgroundColor: palette.bg, borderTopWidth: 1, borderTopColor: palette.border,
+    position: 'absolute', height: 64,
+    backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.borderStrong,
+    borderRadius: 20,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
+    shadowColor: '#000', shadowOpacity: 0.38, shadowRadius: 14, shadowOffset: { width: 0, height: 7 }, elevation: 12,
   },
   item: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 54 },
   iconWrap: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },

@@ -1,4 +1,4 @@
-import { DEVICE, spacing, touch, typography, radius } from '../theme';
+import { DEVICE, darkPalette, lightPalette, spacing, touch, typography, radius } from '../theme';
 
 describe('design tokens', () => {
   it('matches the iPhone 16 Pro reference metrics', () => {
@@ -32,5 +32,12 @@ describe('design tokens', () => {
 
   it('exposes a pill radius large enough to fully round any button', () => {
     expect(radius.pill).toBeGreaterThan(touch.primaryButtonHeight);
+  });
+
+  it('keeps dark and light themes on the same semantic token contract', () => {
+    expect(Object.keys(lightPalette).sort()).toEqual(Object.keys(darkPalette).sort());
+    expect(lightPalette.bg).not.toBe(darkPalette.bg);
+    expect(lightPalette.text).not.toBe(darkPalette.text);
+    expect(lightPalette.accent).toBe(darkPalette.accent);
   });
 });

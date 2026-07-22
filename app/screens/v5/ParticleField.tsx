@@ -5,15 +5,15 @@
  * with a per-particle duration and phase offset so the motion never syncs up.
  */
 import React, { useEffect, useRef } from 'react';
-import { View, Animated, Easing, StyleSheet } from 'react-native';
+import { View, Animated, Easing, Platform, StyleSheet } from 'react-native';
 
 type DriftId = 1 | 2 | 3 | 4;
 
 const DRIFTS: Record<DriftId, { times: number[]; tx: number[]; ty: number[]; rot: number[] }> = {
-  1: { times: [0, 0.22, 0.48, 0.74, 1], tx: [0, 14, -10, -24, 0], ty: [0, -22, -38, -8, 0], rot: [45, 52, 40, 58, 45] },
-  2: { times: [0, 0.30, 0.55, 0.80, 1], tx: [0, -18, 10, 22, 0], ty: [0, 16, 32, 4, 0], rot: [45, 33, 60, 40, 45] },
-  3: { times: [0, 0.18, 0.44, 0.70, 1], tx: [0, 20, 6, -16, 0], ty: [0, 10, -26, 14, 0], rot: [45, 50, 35, 55, 45] },
-  4: { times: [0, 0.26, 0.52, 0.78, 1], tx: [0, -14, 18, 8, 0], ty: [0, -14, -6, 20, 0], rot: [45, 60, 30, 48, 45] },
+  1: { times: [0, 0.22, 0.48, 0.74, 1], tx: [0, 24, -16, -34, 0], ty: [0, -28, -48, -10, 0], rot: [45, 54, 38, 60, 45] },
+  2: { times: [0, 0.30, 0.55, 0.80, 1], tx: [0, -28, 16, 34, 0], ty: [0, 22, 42, 6, 0], rot: [45, 31, 62, 39, 45] },
+  3: { times: [0, 0.18, 0.44, 0.70, 1], tx: [0, 30, 10, -26, 0], ty: [0, 16, -38, 22, 0], rot: [45, 52, 33, 58, 45] },
+  4: { times: [0, 0.26, 0.52, 0.78, 1], tx: [0, -24, 28, 12, 0], ty: [0, -24, -10, 30, 0], rot: [45, 62, 28, 50, 45] },
 };
 
 interface Spec {
@@ -46,23 +46,26 @@ function Particle({ spec }: { spec: Spec }) {
   const d = DRIFTS[spec.drift];
   const durMs = spec.dur * 1000;
   const phase = Math.min(0.999, Math.max(0, -spec.delay / spec.dur));
+  const useNativeDriver = Platform.OS !== 'web';
 
   useEffect(() => {
     let loop: Animated.CompositeAnimation | null = null;
     t.setValue(phase);
-    const leadIn = Animated.timing(t, { toValue: 1, duration: durMs * (1 - phase), easing: Easing.inOut(Easing.ease), useNativeDriver: true });
+    const leadIn = Animated.timing(t, { toValue: 1, duration: durMs * (1 - phase), easing: Easing.inOut(Easing.ease), useNativeDriver, isInteraction: false });
     leadIn.start(({ finished }) => {
       if (!finished) return;
       t.setValue(0);
-      loop = Animated.loop(Animated.timing(t, { toValue: 1, duration: durMs, easing: Easing.inOut(Easing.ease), useNativeDriver: true }));
+      loop = Animated.loop(Animated.timing(t, { toValue: 1, duration: durMs, easing: Easing.inOut(Easing.ease), useNativeDriver, isInteraction: false }));
       loop.start();
     });
     return () => { t.stopAnimation(); loop?.stop(); };
-  }, [t, durMs, phase]);
+  }, [t, durMs, phase, useNativeDriver]);
 
   const translateX = t.interpolate({ inputRange: d.times, outputRange: d.tx });
   const translateY = t.interpolate({ inputRange: d.times, outputRange: d.ty });
   const rotate = t.interpolate({ inputRange: d.times, outputRange: d.rot.map((r) => `${r}deg`) });
+  const scale = t.interpolate({ inputRange: d.times, outputRange: [0.92, 1.06, 0.96, 1.03, 0.92] });
+  const opacity = t.interpolate({ inputRange: d.times, outputRange: [0.72, 1, 0.82, 0.94, 0.72] });
 
   return (
     <Animated.View
@@ -73,7 +76,8 @@ function Particle({ spec }: { spec: Spec }) {
         width: spec.size,
         height: spec.size,
         backgroundColor: spec.color,
-        transform: [{ translateX }, { translateY }, { rotate }],
+        opacity,
+        transform: [{ translateX }, { translateY }, { rotate }, { scale }],
       }}
     />
   );

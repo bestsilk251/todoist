@@ -8,10 +8,13 @@ import type { V5Task } from '../../lib/v5data';
 import { useV5 } from './store';
 import { ProgressBar, CategoryTag, ScreenHeader } from './ui';
 import TaskCard from './TaskCard';
-import { ListIcon, SearchIcon, FunnelIcon, PaletteIcon, MicSimpleIcon, TextLinesIcon, PlusIcon } from '../../components/icons';
+import { ListIcon, SearchIcon, FunnelIcon, PaletteIcon, MicSimpleIcon, TextLinesIcon, PlusIcon, ClockIcon, CheckCircleIcon } from '../../components/icons';
 import { matchesTaskSearch } from '../../lib/taskSearch';
-import { isTaskInListSection } from '../../lib/taskSelectors';
+import { isTaskCompletedOnLocalDay, isTaskInListSection } from '../../lib/taskSelectors';
 import { matchesTaskFilters, taskFilterCount } from '../../lib/taskFilters';
+import { clockToMinutes, minutesToClock } from '../../lib/calendarMath';
+
+const RECENT_COMPLETED_LIMIT = 3;
 
 export default function ListTab() {
   const s = useV5();
@@ -42,6 +45,10 @@ export default function ListTab() {
   const overdue = s.tasks.filter((t) => isTaskInListSection(t, 'overdue') && match(t)).sort(compareTasksChronologically);
   const completed = s.tasks.filter((t) => isTaskInListSection(t, 'completed') && match(t)).sort(compareTasksChronologically);
   const cancelled = s.tasks.filter((t) => isTaskInListSection(t, 'cancelled') && match(t)).sort(compareTasksChronologically);
+  const completedToday = completed
+    .filter((task) => isTaskCompletedOnLocalDay(task))
+    .sort((a, b) => Date.parse(b.completedAt || '') - Date.parse(a.completedAt || ''));
+  const recentCompleted = completedToday.slice(0, RECENT_COMPLETED_LIMIT);
   const completedCount = completed.length;
   const cancelledCount = cancelled.length;
   const activeCount = s.tasks.filter((t) => isTaskInListSection(t, 'active') && matchesFilters(t)).length;
@@ -125,6 +132,60 @@ export default function ListTab() {
         <View style={{ marginBottom: 24 }}>
           <ProgressBar completed={done} total={total} />
         </View>
+
+        {recentCompleted.length > 0 ? (
+          <View style={styles.recentCompletedSection}>
+            <View style={styles.recentCompletedHeader}>
+              <View style={styles.recentCompletedHeading}>
+                <ClockIcon size={15} color={palette.textMuted} />
+                <Text style={styles.recentCompletedLabel}>Раніше сьогодні</Text>
+              </View>
+              <Text style={styles.recentCompletedCount}>Завершено · {completedToday.length}</Text>
+            </View>
+
+            <View style={styles.recentCompletedList}>
+              {recentCompleted.map((task) => {
+                const categoryColor = s.categories[task.category] || palette.textFaint;
+                const timeLabel = task.time && task.durationMinutes
+                  ? `${task.time}–${minutesToClock(clockToMinutes(task.time) + task.durationMinutes)}`
+                  : task.time;
+                return (
+                  <Pressable
+                    key={task.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Відкрити виконану задачу ${task.title}`}
+                    onPress={() => s.openTaskDetail(task.id)}
+                    style={({ pressed }) => [styles.recentCompletedCard, pressed && styles.recentCompletedCardPressed]}
+                  >
+                    <View style={styles.recentCompletedBar} />
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Активувати задачу ${task.title}`}
+                      hitSlop={7}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        s.toggleComplete(task.id);
+                      }}
+                      style={({ pressed }) => [styles.recentCompletedCheck, pressed && styles.recentCompletedCheckPressed]}
+                    >
+                      <CheckCircleIcon size={18} color={palette.badgeGreen} />
+                    </Pressable>
+                    <View style={styles.recentCompletedBody}>
+                      <Text numberOfLines={2} style={styles.recentCompletedTitle}>{task.title}</Text>
+                      <View style={styles.recentCompletedMeta}>
+                        {timeLabel ? <Text style={styles.recentCompletedTime}>{timeLabel}</Text> : null}
+                        <CategoryTag name={task.category} color={categoryColor} />
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {completedToday.length > RECENT_COMPLETED_LIMIT ? (
+              <Text style={styles.recentCompletedMore}>Ще {completedToday.length - RECENT_COMPLETED_LIMIT} — у розділі «Виконані» нижче</Text>
+            ) : null}
+          </View>
+        ) : null}
 
         {activeFilterCount > 0 && visibleTaskCount === 0 ? (
           <View style={styles.filterEmpty}>
@@ -291,6 +352,22 @@ const styles = StyleSheet.create({
   filterEmptyText: { maxWidth: 270, color: palette.textMuted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 6 },
   filterEmptyButton: { minHeight: 44, justifyContent: 'center', marginTop: 14, paddingHorizontal: 16, borderRadius: 12, backgroundColor: withAlpha(palette.accent, 0.1), borderWidth: 1, borderColor: withAlpha(palette.accent, 0.4) },
   filterEmptyButtonText: { color: palette.accent, fontSize: 12.5, fontWeight: '700' },
+  recentCompletedSection: { marginBottom: 22 },
+  recentCompletedHeader: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 9 },
+  recentCompletedHeading: { flexDirection: 'row', alignItems: 'center', gap: 7, minWidth: 0 },
+  recentCompletedLabel: { color: palette.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 0.55, textTransform: 'uppercase' },
+  recentCompletedCount: { color: palette.textFaint, fontSize: 11.5 },
+  recentCompletedList: { gap: 8 },
+  recentCompletedCard: { position: 'relative', minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: palette.surfaceAlt, borderRadius: 14, borderWidth: 1, borderColor: palette.surfaceAltBorder, overflow: 'hidden' },
+  recentCompletedCardPressed: { backgroundColor: palette.chip },
+  recentCompletedBar: { position: 'absolute', left: 0, top: 13, bottom: 13, width: 3, borderRadius: 2, backgroundColor: palette.borderStrong },
+  recentCompletedCheck: { width: 34, height: 44, marginLeft: 2, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(palette.badgeGreen, 0.07), borderWidth: 1, borderColor: withAlpha(palette.badgeGreen, 0.2) },
+  recentCompletedCheckPressed: { backgroundColor: withAlpha(palette.badgeGreen, 0.16), borderColor: withAlpha(palette.badgeGreen, 0.38) },
+  recentCompletedBody: { flex: 1, minWidth: 0 },
+  recentCompletedTitle: { color: palette.textFaint, fontSize: 13.5, lineHeight: 18, fontWeight: '600', textDecorationLine: 'line-through' },
+  recentCompletedMeta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 5, opacity: 0.72 },
+  recentCompletedTime: { color: palette.textMuted, backgroundColor: palette.chip, fontSize: 10.5, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, overflow: 'hidden' },
+  recentCompletedMore: { color: palette.textFaint, fontSize: 10.5, lineHeight: 15, marginTop: 8, paddingLeft: 2 },
   groupHeading: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 },
   groupLabel: { fontSize: 12, fontWeight: '600', color: palette.textMuted, letterSpacing: 0.6, textTransform: 'uppercase' },
   groupDate: { color: palette.textFaint, fontSize: 12, textTransform: 'none', letterSpacing: 0 },
@@ -313,5 +390,5 @@ const styles = StyleSheet.create({
   textBar: { position: 'absolute', left: 20, right: 20, bottom: 110, backgroundColor: palette.surface, borderWidth: 1.5, borderColor: palette.accent, borderRadius: 16, height: 56, paddingLeft: 16, paddingRight: 10, flexDirection: 'row', alignItems: 'center', gap: 10, elevation: 10, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 14, shadowOffset: { width: 0, height: 10 } },
   textBarInput: { flex: 1, color: palette.text, fontSize: 15, padding: 0 },
   textBarSubmit: { width: 38, height: 38, borderRadius: 11, backgroundColor: palette.accent, alignItems: 'center', justifyContent: 'center' },
-  fab: { position: 'absolute', right: 20, bottom: 110, width: 52, height: 52, borderRadius: 16, backgroundColor: palette.accentFab, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center', elevation: 8, shadowColor: palette.accentFab, shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 8 } },
+  fab: { position: 'absolute', right: 20, bottom: 110, width: 52, height: 52, borderRadius: 16, backgroundColor: palette.accentFab, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center', elevation: 4, shadowColor: '#000', shadowOpacity: 0.26, shadowRadius: 7, shadowOffset: { width: 0, height: 4 } },
 });

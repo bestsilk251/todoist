@@ -1,4 +1,4 @@
-import { categoryColors, palette } from '../../../theme';
+import { categoryColors, palette, withAlpha } from '../../../theme';
 import type { AnalyticsCategory, AnalyticsMeasure } from '../../../lib/analyticsTypes';
 
 export const analyticsCategoryColors: Record<string, string> = {
@@ -12,11 +12,11 @@ export const analyticsCategoryColors: Record<string, string> = {
 };
 
 export const productivityColors = {
-  empty: '#17171A',
-  low: '#35191C',
-  medium: '#6F2528',
-  high: '#C43A3A',
-  peak: '#FF6B66',
+  empty: palette.surfaceAlt,
+  low: withAlpha(palette.accent, 0.14),
+  medium: withAlpha(palette.accent, 0.35),
+  high: withAlpha(palette.accent, 0.68),
+  peak: palette.accentLight,
 } as const;
 
 export function categoryAnalyticsColor(name: string): string {

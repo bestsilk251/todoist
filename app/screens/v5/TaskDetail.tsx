@@ -5,7 +5,7 @@ import { palette, priorityColor, priorityLabel, withAlpha } from '../../theme';
 import { monthsGen, weekdaysFull, descByCategory } from '../../lib/v5data';
 import { DEFAULT_TIMED_TASK_DURATION_MINUTES } from '../../lib/calendarMath';
 import { useV5 } from './store';
-import { ChevronLeftIcon, DotsVerticalIcon, CalendarSlimIcon, FunnelIcon, FlagIcon, PersonPlusIcon, ShareArrowIcon, CaretRight } from '../../components/icons';
+import { ChevronLeftIcon, DotsVerticalIcon, CalendarSlimIcon, FunnelIcon, FlagIcon, PersonPlusIcon, ShareArrowIcon, CaretRight, CheckCircleIcon } from '../../components/icons';
 
 export default function TaskDetail() {
   const s = useV5();
@@ -56,6 +56,24 @@ export default function TaskDetail() {
           <Text style={styles.dot}>·</Text>
           <Text style={tag(12)}>{t.category}</Text>
         </View>
+
+        {t.completed ? (
+          <View style={styles.completedCard} accessibilityRole="summary">
+            <View style={styles.completedIcon}><CheckCircleIcon size={18} color={palette.badgeGreen} /></View>
+            <View style={styles.completedBody}>
+              <Text style={styles.completedTitle}>Задачу виконано</Text>
+              <Text style={styles.completedText}>Її можна редагувати або повернути до активних задач.</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Активувати задачу"
+              onPress={() => s.toggleComplete(t.id)}
+              style={({ pressed }) => [styles.reactivateButton, pressed && styles.reactivateButtonPressed]}
+            >
+              <Text style={styles.reactivateText}>Активувати</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.infoCard}>
           <View style={[styles.infoRow, styles.infoDivider]}>
@@ -142,6 +160,14 @@ const styles = StyleSheet.create({
   subRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 22, paddingLeft: 30, flexWrap: 'wrap' },
   subtitle: { fontSize: 13.5, color: palette.textMuted },
   dot: { fontSize: 13, color: palette.textFaint },
+  completedCard: { minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 12, marginBottom: 14, borderRadius: 14, backgroundColor: withAlpha(palette.badgeGreen, 0.08), borderWidth: 1, borderColor: withAlpha(palette.badgeGreen, 0.26) },
+  completedIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(palette.badgeGreen, 0.1) },
+  completedBody: { flex: 1, minWidth: 0 },
+  completedTitle: { color: palette.text, fontSize: 13, fontWeight: '700' },
+  completedText: { color: palette.textMuted, fontSize: 10.5, lineHeight: 14, marginTop: 2 },
+  reactivateButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 11, borderRadius: 11, backgroundColor: withAlpha(palette.badgeGreen, 0.1), borderWidth: 1, borderColor: withAlpha(palette.badgeGreen, 0.32) },
+  reactivateButtonPressed: { backgroundColor: withAlpha(palette.badgeGreen, 0.18) },
+  reactivateText: { color: palette.badgeGreen, fontSize: 11.5, fontWeight: '700' },
   infoCard: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 16, overflow: 'hidden', marginBottom: 22 },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16 },
   infoBetween: { justifyContent: 'space-between' },

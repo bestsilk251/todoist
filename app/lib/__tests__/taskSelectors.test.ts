@@ -1,4 +1,4 @@
-import { getTaskListSection, isTaskInListSection, isTaskOnCalendarDay } from '../taskSelectors';
+import { getTaskListSection, isTaskCompletedOnLocalDay, isTaskInListSection, isTaskOnCalendarDay } from '../taskSelectors';
 import type { V5Task } from '../v5data';
 
 function task(overrides: Partial<V5Task> = {}): V5Task {
@@ -40,5 +40,16 @@ describe('shared task visibility', () => {
     ]);
     expect(isTaskInListSection(active, 'active')).toBe(true);
     expect(isTaskInListSection(completed, 'completed')).toBe(true);
+  });
+
+  it('selects only tasks completed on the current local calendar day', () => {
+    const reference = new Date(2026, 6, 22, 12, 0, 0);
+    const today = new Date(2026, 6, 22, 8, 30, 0).toISOString();
+    const yesterday = new Date(2026, 6, 21, 23, 30, 0).toISOString();
+
+    expect(isTaskCompletedOnLocalDay(task({ completed: true, completedAt: today }), reference)).toBe(true);
+    expect(isTaskCompletedOnLocalDay(task({ completed: true, completedAt: yesterday }), reference)).toBe(false);
+    expect(isTaskCompletedOnLocalDay(task({ completed: false, completedAt: today }), reference)).toBe(false);
+    expect(isTaskCompletedOnLocalDay(task({ completed: true, completedAt: 'invalid' }), reference)).toBe(false);
   });
 });

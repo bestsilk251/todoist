@@ -9,6 +9,7 @@ import { ScreenHeader } from './ui';
 import {
   ProfileIcon, PencilIcon, CheckCircleIcon, FireIcon, StarIcon, PersonHeadIcon, LogoutIcon, CaretRight,
 } from '../../components/icons';
+import { useAppTheme } from '../../ThemeProvider';
 
 function SettingRow({ label, value, last, onPress }: { label: string; value?: string; last?: boolean; onPress?: () => void }) {
   return (
@@ -24,6 +25,7 @@ function SettingRow({ label, value, last, onPress }: { label: string; value?: st
 
 export default function ProfileTab() {
   const s = useV5();
+  const { mode } = useAppTheme();
   const completedTasks = s.tasks.filter((task) => task.completed).length;
   const completedAt = s.tasks.flatMap((task) => task.completedAt ? [task.completedAt] : []);
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -129,14 +131,13 @@ export default function ProfileTab() {
 
       <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>Налаштування</Text>
       <View style={styles.card}>
-        <SettingRow label="Сповіщення" value="Увімкнено" />
-        <SettingRow label="Оформлення" value="Темна" />
-        <SettingRow label="Мова" value="Українська" last />
+        <SettingRow label="Сповіщення" value={s.notificationsEnabled ? 'Увімкнено' : 'Вимкнено'} onPress={s.toggleNotifications} />
+        <SettingRow label="Оформлення" value={mode === 'light' ? 'Світла' : 'Темна'} onPress={s.openAppearance} last />
       </View>
 
       <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>Акаунт</Text>
       <View style={styles.card}>
-        <SettingRow label="Особисті дані" />
+        <SettingRow label="Особисті дані" onPress={s.openPersonalData} />
         <SettingRow label="Безпека" onPress={s.openSecurityInfo} last />
       </View>
 

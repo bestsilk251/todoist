@@ -20,7 +20,7 @@ import ConflictTasksSheet from './ConflictTasksSheet';
 import TaskActionToast from './TaskActionToast';
 import ListFiltersSheet from './ListFiltersSheet';
 import {
-  CategoryEditor, AvatarMenu, LogoutConfirm, ShareSheet,
+  CategoryEditor, AvatarMenu, LogoutConfirm, ShareSheet, PersonalDataSheet, AppearanceSheet,
   AchievementsSheet, SecurityInfoSheet, AboutAppSheet,
 } from './Sheets';
 
@@ -45,6 +45,8 @@ function Shell() {
       <AvatarMenu />
       <ShareSheet />
       <AchievementsSheet />
+      <PersonalDataSheet />
+      <AppearanceSheet />
       <SecurityInfoSheet />
       <AboutAppSheet />
       <PreviewSheet />

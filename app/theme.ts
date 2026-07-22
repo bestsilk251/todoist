@@ -12,7 +12,7 @@
  * Never hard-code 402 in a layout — use flex plus these tokens.
  */
 
-import { Dimensions, PixelRatio, Platform } from 'react-native';
+import { Appearance, Dimensions, DynamicColorIOS, PixelRatio, Platform } from 'react-native';
 
 /** Reference device metrics. For tests and design docs, not for layout math. */
 export const DEVICE = {
@@ -82,7 +82,7 @@ export const typography = {
  * light-theme screens still type-check) but every value now points at its dark
  * equivalent. Reach for `palette` for the complete, design-accurate set.
  */
-export const palette = {
+export const darkPalette = {
   /** Backgrounds */
   pageBg: '#050506', // outer frame behind the phone
   bg: '#0B0B0D', // app background
@@ -129,6 +129,102 @@ export const palette = {
 
   white: '#F5F5F5',
 } as const;
+
+export type ThemeMode = 'dark' | 'light';
+export type ThemePalette = { [Key in keyof typeof darkPalette]: string };
+
+export const lightPalette: ThemePalette = {
+  pageBg: '#F1F2F4',
+  bg: '#FAFAFB',
+  surface: '#FFFFFF',
+  surfaceAlt: '#F6F7F9',
+  surfaceAltBorder: '#E7E9ED',
+  chip: '#F0F1F4',
+  chipBorder: '#D9DCE2',
+  border: '#E1E3E8',
+  borderStrong: '#D2D5DC',
+  borderFaint: '#ECEEF1',
+  overdueBorder: '#F0B8B5',
+  text: '#1B1B1F',
+  textSecondary: '#3A3A40',
+  textMuted: '#717179',
+  textFaint: '#96969E',
+  textFainter: '#B1B1B8',
+  textGhost: '#C6C6CC',
+  accent: '#E53935',
+  accentLight: '#F5675E',
+  accentFab: '#EF4440',
+  accentDeep: '#B72D2A',
+  accentSoftText: '#B84A46',
+  accentPaleText: '#7D302D',
+  logout: '#D94540',
+  priorityUrgent: '#E53935',
+  priorityHigh: '#D9682F',
+  priorityMedium: '#A77E12',
+  priorityLow: '#8C8C94',
+  badgeStreak: '#D9682F',
+  badgeGold: '#B88C18',
+  badgePurple: '#7158C6',
+  badgeGreen: '#3F8E64',
+  white: '#FFFFFF',
+};
+
+const palettes: Record<ThemeMode, ThemePalette> = { dark: darkPalette, light: lightPalette };
+const cssNames = Object.fromEntries(
+  Object.keys(darkPalette).map((key) => [key, `--voice-todo-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`]),
+) as Record<keyof ThemePalette, string>;
+const cssKeys = new Map(Object.entries(cssNames).map(([key, name]) => [name, key as keyof ThemePalette]));
+const alphaVariables = new Map<string, { key: keyof ThemePalette; alpha: number }>();
+const dynamicColorPairs = new WeakMap<object, { dark: string; light: string }>();
+let activeThemeMode: ThemeMode = 'dark';
+
+function dynamicToken(key: keyof ThemePalette): string {
+  if (Platform.OS === 'web') return `var(${cssNames[key]}, ${darkPalette[key]})`;
+  if (Platform.OS === 'ios') {
+    const value = DynamicColorIOS({ dark: darkPalette[key], light: lightPalette[key] });
+    dynamicColorPairs.set(value as object, { dark: darkPalette[key], light: lightPalette[key] });
+    return value as unknown as string;
+  }
+  return darkPalette[key];
+}
+
+/** Semantic colors automatically react to the selected theme on web and iOS. */
+export const palette = Object.fromEntries(
+  (Object.keys(darkPalette) as (keyof ThemePalette)[]).map((key) => [key, dynamicToken(key)]),
+) as Record<keyof ThemePalette, string>;
+
+function rgba(hex: string, alpha: number): string {
+  const value = hex.replace('#', '');
+  const r = parseInt(value.substring(0, 2), 16);
+  const g = parseInt(value.substring(2, 4), 16);
+  const b = parseInt(value.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function syncWebTheme(mode: ThemeMode) {
+  if (Platform.OS !== 'web') return;
+  const document = (globalThis as typeof globalThis & { document?: Document }).document;
+  if (!document) return;
+  const root = document.documentElement;
+  (Object.keys(cssNames) as (keyof ThemePalette)[]).forEach((key) => {
+    root.style.setProperty(cssNames[key], palettes[mode][key]);
+  });
+  alphaVariables.forEach(({ key, alpha }, variable) => {
+    root.style.setProperty(variable, rgba(palettes[mode][key], alpha));
+  });
+  root.style.colorScheme = mode;
+  document.body.style.backgroundColor = palettes[mode].bg;
+}
+
+export function applyThemeMode(mode: ThemeMode): void {
+  activeThemeMode = mode;
+  try { Appearance.setColorScheme(mode); } catch { /* not supported by every platform */ }
+  syncWebTheme(mode);
+}
+
+export function getActiveThemeMode(): ThemeMode {
+  return activeThemeMode;
+}
 
 /** Backwards-compatible alias used across the codebase. */
 export const colors = {
@@ -184,12 +280,22 @@ export function priorityLabel(p: Priority): string {
 }
 
 /** Convert a #rrggbb hex to an rgba() string with the given alpha. */
-export function withAlpha(hex: string, a: number): string {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.substring(0, 2), 16);
-  const g = parseInt(h.substring(2, 4), 16);
-  const b = parseInt(h.substring(4, 6), 16);
-  return `rgba(${r},${g},${b},${a})`;
+export function withAlpha(color: string, a: number): string {
+  if (typeof color === 'string') {
+    const cssVariable = color.match(/^var\((--voice-todo-[a-z-]+)/)?.[1];
+    const key = cssVariable ? cssKeys.get(cssVariable) : undefined;
+    if (Platform.OS === 'web' && cssVariable && key) {
+      const alphaKey = `${cssVariable}-alpha-${Math.round(a * 1000)}`;
+      alphaVariables.set(alphaKey, { key, alpha: a });
+      const document = (globalThis as typeof globalThis & { document?: Document }).document;
+      document?.documentElement.style.setProperty(alphaKey, rgba(palettes[activeThemeMode][key], a));
+      return `var(${alphaKey}, ${rgba(darkPalette[key], a)})`;
+    }
+    return rgba(color, a);
+  }
+  const pair = dynamicColorPairs.get(color as unknown as object);
+  if (pair && Platform.OS === 'ios') return DynamicColorIOS({ dark: rgba(pair.dark, a), light: rgba(pair.light, a) }) as unknown as string;
+  return color;
 }
 
 export const radius = {

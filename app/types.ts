@@ -6,6 +6,7 @@ export interface ParsedTask {
   is_all_day: boolean;
   needs_confirmation: boolean;
   duration_minutes?: number | null;
+  category?: string | null;
 }
 
 /** Task priority, persisted in the `priority` column (added in 0002). */

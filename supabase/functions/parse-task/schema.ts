@@ -7,6 +7,7 @@ const TaskSchema = z.object({
   is_all_day: z.boolean(),
   needs_confirmation: z.boolean(),
   duration_minutes: z.number().int().positive().max(1440).nullable().default(null),
+  category: z.string().trim().min(1).max(80).nullable().default(null),
 });
 
 const TaskListSchema = z.array(TaskSchema);

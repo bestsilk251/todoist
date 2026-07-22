@@ -1,4 +1,4 @@
-import { enrichParsedTasksWithSchedule, isoOf, previewFromParsed, previewToInsert, rowToV5 } from '../tasksRepo';
+import { enrichParsedTasksWithSchedule, isoOf, isPreviewScheduledInPast, previewFromParsed, previewToInsert, resolveParsedCategory, rowToV5 } from '../tasksRepo';
 import type { Task } from '../../types';
 
 function databaseTask(overrides: Partial<Task> = {}): Task {
@@ -86,6 +86,28 @@ describe('parsed task duration persistence', () => {
       duration_minutes: 85,
     }));
   });
+
+  it('keeps an explicitly parsed custom category and infers known categories safely', () => {
+    const categories = ['Особисте', 'Робота', "Здоров'я", 'Подорожі'];
+    expect(resolveParsedCategory('подорожі', categories, 'Купити квитки')).toBe('Подорожі');
+    expect(resolveParsedCategory(null, categories, 'Записатися до лікаря')).toBe("Здоров'я");
+    expect(resolveParsedCategory('Невідома', categories, 'Звичайна справа')).toBe('Особисте');
+  });
+
+  it('carries a parsed category through preview and insert payload', () => {
+    const preview = previewFromParsed({
+      title: 'Підготувати звіт',
+      date: '2026-07-23',
+      time: '10:00',
+      is_all_day: false,
+      needs_confirmation: false,
+      duration_minutes: 45,
+      category: 'Робота',
+    }, 'preview-category', ['Особисте', 'Робота']);
+
+    expect(preview.category).toBe('Робота');
+    expect(previewToInsert(preview)).toEqual(expect.objectContaining({ category: 'Робота' }));
+  });
 });
 
 describe('overdue task mapping', () => {
@@ -121,5 +143,22 @@ describe('overdue task mapping', () => {
     expect(task.cancelled).toBe(true);
     expect(task.completed).toBe(false);
     expect(task.overdue).toBe(false);
+  });
+});
+
+describe('new task schedule validation', () => {
+  const now = new Date(2026, 6, 22, 16, 0);
+
+  it('rejects an earlier time on the current day', () => {
+    expect(isPreviewScheduledInPast({ iso: '2026-07-22', time: '12:00' }, now)).toBe(true);
+  });
+
+  it('allows the current minute and any future date', () => {
+    expect(isPreviewScheduledInPast({ iso: '2026-07-22', time: '16:00' }, now)).toBe(false);
+    expect(isPreviewScheduledInPast({ iso: '2026-07-23', time: '09:00' }, now)).toBe(false);
+  });
+
+  it('rejects a past day even for an all-day task', () => {
+    expect(isPreviewScheduledInPast({ iso: '2026-07-21', time: '' }, now)).toBe(true);
   });
 });

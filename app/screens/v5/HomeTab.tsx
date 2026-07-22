@@ -69,7 +69,7 @@ export default function HomeTab() {
           <Text style={styles.date}>{dateLabel}</Text>
         </View>
 
-        {eventSoonBanner ? (
+        {s.notificationsEnabled && eventSoonBanner ? (
           <View style={styles.soonBanner}>
             <BellIcon size={17} color={palette.accent} />
             <Text style={styles.soonText}>{eventSoonBanner}</Text>
@@ -84,8 +84,8 @@ export default function HomeTab() {
         ) : null}
 
         <LinearGradient
-          colors={['#17171A', '#131315'] as const}
-          style={[styles.quickAdd, { borderColor: focused ? palette.accent : withAlpha(palette.accent, 0.32) }]}
+          colors={[palette.surface, palette.surfaceAlt] as const}
+          style={[styles.quickAdd, { borderColor: withAlpha(palette.accent, focused ? 0.68 : 0.26) }]}
         >
           <View style={styles.quickRow}>
             <TextInput
@@ -154,8 +154,8 @@ const styles = StyleSheet.create({
   },
   reminderText: { flex: 1, fontSize: 12.5, color: palette.textSecondary, lineHeight: 17 },
   quickAdd: {
-    borderWidth: 1.5, borderRadius: 16, height: 58, paddingLeft: 16, paddingRight: 10, justifyContent: 'center', width: '100%',
-    shadowColor: palette.accent, shadowOpacity: 0.14, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 4,
+    borderWidth: 1, borderRadius: 16, height: 58, paddingLeft: 16, paddingRight: 10, justifyContent: 'center', width: '100%',
+    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 2,
   },
   quickRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   quickInput: { flex: 1, color: palette.text, fontSize: 16, padding: 0 },

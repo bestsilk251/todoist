@@ -9,6 +9,7 @@
 import { getSupabaseClient } from './supabase';
 import type { Task, ParsedTask, Priority } from '../types';
 import type { V5Task, PreviewTask } from './v5data';
+import { categoryColors } from '../theme';
 import { parseDurationMinutes } from './analyticsMath';
 import { clockToMinutes, DEFAULT_TIMED_TASK_DURATION_MINUTES, extractScheduleFromText } from './calendarMath';
 import { clearAnalyticsCache } from './analyticsRepo';
@@ -50,6 +51,20 @@ export function previewDateLabel(iso: string | null, today = new Date()): string
   return `${d}.${m}`;
 }
 
+/** Prevent newly created timed tasks from being scheduled earlier than now. */
+export function isPreviewScheduledInPast(
+  task: Pick<PreviewTask, 'iso' | 'time'>,
+  now = new Date(),
+): boolean {
+  if (!task.iso) return false;
+  const today = isoOf(now);
+  if (task.iso < today) return true;
+  if (task.iso > today || !/^\d{2}:\d{2}$/.test(task.time)) return false;
+  const scheduledMinutes = clockToMinutes(task.time);
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  return scheduledMinutes < currentMinutes;
+}
+
 /** DB row → UI task. */
 export function rowToV5(row: Task, today = new Date()): V5Task {
   const dueInDays = offsetFromToday(row.due_date, today);
@@ -80,8 +95,55 @@ export function rowToV5(row: Task, today = new Date()): V5Task {
   };
 }
 
+const CATEGORY_HINTS: Record<string, string[]> = {
+  'Робота': ['робот', 'робоч', 'клієнт', 'звіт', 'команд', 'презентац', 'meeting', 'work'],
+  'Навчання': ['навчан', 'книг', 'прочит', 'іспит', 'курс', 'урок', 'study'],
+  "Здоров'я": ['здоров', 'лікар', 'тренув', 'спорт', 'медитац', 'стоматолог', 'doctor'],
+  'Дім': ['дім', 'домаш', 'прибир', 'продукт', 'магазин', 'побут', 'buy groceries'],
+};
+
+function normalizedCategoryText(value: string): string {
+  return value.toLocaleLowerCase('uk-UA').replace(/[’`]/g, "'").trim();
+}
+
+/** Resolve exact/custom category names first, then infer only well-known categories. */
+export function resolveParsedCategory(
+  parsedCategory: string | null | undefined,
+  availableCategories: string[],
+  taskText = '',
+  sourceText = '',
+): string {
+  const categories = availableCategories.length ? availableCategories : Object.keys(categoryColors);
+  const exact = parsedCategory
+    ? categories.find((category) => normalizedCategoryText(category) === normalizedCategoryText(parsedCategory))
+    : undefined;
+  if (exact) return exact;
+
+  const taskHaystack = normalizedCategoryText(`${parsedCategory ?? ''} ${taskText}`);
+  const mentionedInTask = categories.find((category) => taskHaystack.includes(normalizedCategoryText(category)));
+  if (mentionedInTask) return mentionedInTask;
+
+  const sourceHaystack = normalizedCategoryText(sourceText);
+  const sourceMatches = categories.filter((category) => sourceHaystack.includes(normalizedCategoryText(category)));
+  if (sourceMatches.length === 1) return sourceMatches[0];
+
+  for (const [canonicalName, hints] of Object.entries(CATEGORY_HINTS)) {
+    const category = categories.find((item) => normalizedCategoryText(item) === normalizedCategoryText(canonicalName));
+    if (category && hints.some((hint) => taskHaystack.includes(hint))) return category;
+  }
+
+  return categories.find((category) => normalizedCategoryText(category) === normalizedCategoryText('Особисте'))
+    ?? categories[0]
+    ?? 'Особисте';
+}
+
 /** parse-task output → a preview card. */
-export function previewFromParsed(p: ParsedTask, id: string): PreviewTask {
+export function previewFromParsed(
+  p: ParsedTask,
+  id: string,
+  availableCategories: string[] = Object.keys(categoryColors),
+  sourceText = '',
+): PreviewTask {
   const previewTime = p.is_all_day || !p.time ? '' : p.time;
   const durationMinutes = previewTime ? (p.duration_minutes ?? DEFAULT_TIMED_TASK_DURATION_MINUTES) : p.duration_minutes;
   const duration = durationMinutes == null
@@ -95,7 +157,7 @@ export function previewFromParsed(p: ParsedTask, id: string): PreviewTask {
     iso: p.date ?? isoOf(new Date()),
     time: previewTime,
     duration,
-    category: 'Особисте',
+    category: resolveParsedCategory(p.category, availableCategories, p.title, sourceText),
     important: false,
     needsConfirmation: p.needs_confirmation,
   };
@@ -216,13 +278,14 @@ export async function setDueDate(id: string, iso: string): Promise<void> {
 }
 
 /** Invokes the parse-task Edge Function; returns [] on any failure. */
-export async function parseTaskText(text: string): Promise<ParsedTask[]> {
+export async function parseTaskText(text: string, categories: string[] = Object.keys(categoryColors)): Promise<ParsedTask[]> {
   try {
     const { data, error } = await getSupabaseClient().functions.invoke('parse-task', {
       body: {
         text,
         currentDate: isoOf(new Date()),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        categories,
       },
     });
     if (error) throw error;
