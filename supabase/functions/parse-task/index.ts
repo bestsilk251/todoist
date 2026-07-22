@@ -51,6 +51,7 @@ export async function handleParseTask(
           needs_confirmation: true,
           duration_minutes: null,
           category: null,
+          priority: null,
         },
       ],
     };

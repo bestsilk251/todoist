@@ -3,7 +3,7 @@
 import React from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { palette, priorityColor, priorityLabel, withAlpha } from '../../theme';
-import { compareTasksChronologically, formatDateLabel } from '../../lib/v5data';
+import { compareTasksChronologically, formatDateLabel, formatTaskEventDate } from '../../lib/v5data';
 import type { V5Task } from '../../lib/v5data';
 import { useV5 } from './store';
 import { ProgressBar, CategoryTag, ScreenHeader } from './ui';
@@ -149,6 +149,7 @@ export default function ListTab() {
                 const timeLabel = task.time && task.durationMinutes
                   ? `${task.time}–${minutesToClock(clockToMinutes(task.time) + task.durationMinutes)}`
                   : task.time;
+                const completedDate = formatTaskEventDate(task.completedAt, false);
                 return (
                   <Pressable
                     key={task.id}
@@ -174,6 +175,7 @@ export default function ListTab() {
                       <Text numberOfLines={2} style={styles.recentCompletedTitle}>{task.title}</Text>
                       <View style={styles.recentCompletedMeta}>
                         {timeLabel ? <Text style={styles.recentCompletedTime}>{timeLabel}</Text> : null}
+                        {completedDate ? <Text style={styles.lifecycleDate}>Завершено {completedDate}</Text> : null}
                         <CategoryTag name={task.category} color={categoryColor} />
                       </View>
                     </View>
@@ -199,7 +201,14 @@ export default function ListTab() {
         {groups.map((g) => (
           <View key={g.key} style={{ marginBottom: 22 }}>
             <View style={styles.groupHeading}>
-              <Text style={styles.groupLabel}>{g.label}</Text>
+              <View style={styles.groupTitleRow}>
+                <Text style={styles.groupLabel}>{g.label}</Text>
+                {g.key !== 'noDate' ? (
+                  <Text accessibilityLabel={`${g.tasks.length} задач у секції ${g.label}`} style={styles.groupCount}>
+                    {g.tasks.length > 99 ? '99+' : g.tasks.length}
+                  </Text>
+                ) : null}
+              </View>
               {g.key === 'today' ? <Text style={styles.groupDate}>{formatDateLabel(new Date())}</Text> : null}
             </View>
             {g.tasks.map((t) => <TaskCard key={t.id} task={t} />)}
@@ -232,6 +241,7 @@ export default function ListTab() {
               <View style={{ marginTop: 10, gap: 8 }}>
                 {completed.map((t) => {
                   const cat = s.categories[t.category] || palette.textFaint;
+                  const completedDate = formatTaskEventDate(t.completedAt, false);
                   return (
                     <Pressable key={t.id} onPress={() => s.openTaskDetail(t.id)} style={styles.completedCard}>
                       <Pressable onPress={() => s.toggleComplete(t.id)} style={styles.completedCheckbox}>
@@ -239,8 +249,9 @@ export default function ListTab() {
                       </Pressable>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.completedTitle}>{t.title}</Text>
-                        <View style={{ marginTop: 5, opacity: 0.5, flexDirection: 'row' }}>
+                        <View style={styles.lifecycleMeta}>
                           <CategoryTag name={t.category} color={cat} />
+                          {completedDate ? <Text style={styles.lifecycleDate}>Завершено {completedDate}</Text> : null}
                         </View>
                       </View>
                     </Pressable>
@@ -267,6 +278,7 @@ export default function ListTab() {
               <View style={{ marginTop: 10, gap: 8 }}>
                 {cancelled.map((task) => {
                   const cat = s.categories[task.category] || palette.textFaint;
+                  const cancelledDate = formatTaskEventDate(task.cancelledAt);
                   return (
                     <Pressable key={task.id} onPress={() => s.openTaskDetail(task.id)} style={styles.cancelledCard}>
                       <Pressable
@@ -279,8 +291,9 @@ export default function ListTab() {
                       </Pressable>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text numberOfLines={1} style={styles.cancelledTitle}>{task.title}</Text>
-                        <View style={{ marginTop: 5, opacity: 0.55, flexDirection: 'row' }}>
+                        <View style={styles.lifecycleMeta}>
                           <CategoryTag name={task.category} color={cat} />
+                          {cancelledDate ? <Text style={styles.lifecycleDate}>Скасовано {cancelledDate}</Text> : null}
                         </View>
                       </View>
                       <Text style={styles.restoreLabel}>Відновити</Text>
@@ -367,9 +380,13 @@ const styles = StyleSheet.create({
   recentCompletedTitle: { color: palette.textFaint, fontSize: 13.5, lineHeight: 18, fontWeight: '600', textDecorationLine: 'line-through' },
   recentCompletedMeta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 5, opacity: 0.72 },
   recentCompletedTime: { color: palette.textMuted, backgroundColor: palette.chip, fontSize: 10.5, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, overflow: 'hidden' },
+  lifecycleMeta: { marginTop: 6, opacity: 0.68, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  lifecycleDate: { color: palette.textMuted, backgroundColor: palette.chip, fontSize: 10.5, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, overflow: 'hidden' },
   recentCompletedMore: { color: palette.textFaint, fontSize: 10.5, lineHeight: 15, marginTop: 8, paddingLeft: 2 },
   groupHeading: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 },
+  groupTitleRow: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 7 },
   groupLabel: { fontSize: 12, fontWeight: '600', color: palette.textMuted, letterSpacing: 0.6, textTransform: 'uppercase' },
+  groupCount: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, overflow: 'hidden', color: palette.textSecondary, backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.border, fontSize: 10.5, lineHeight: 20, fontWeight: '700', textAlign: 'center' },
   groupDate: { color: palette.textFaint, fontSize: 12, textTransform: 'none', letterSpacing: 0 },
   completedToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 14, backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.surfaceAltBorder, borderRadius: 14 },
   overdueToggle: { backgroundColor: withAlpha(palette.accent, 0.08), borderColor: withAlpha(palette.accent, 0.3) },

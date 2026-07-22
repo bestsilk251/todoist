@@ -22,9 +22,9 @@ export default function BottomNav() {
       style={[
         styles.bar,
         {
-          left: Math.max(insets.left, 8),
-          right: Math.max(insets.right, 8),
-          bottom: Math.max(insets.bottom, 8),
+          left: Math.max(insets.left + 4, 12),
+          right: Math.max(insets.right + 4, 12),
+          bottom: Math.max(insets.bottom + 4, 12),
         },
       ]}
     >
@@ -44,13 +44,13 @@ export default function BottomNav() {
 
 const styles = StyleSheet.create({
   bar: {
-    position: 'absolute', height: 64,
+    position: 'absolute', height: 60,
     backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.borderStrong,
-    borderRadius: 20,
+    borderRadius: 18,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
     shadowColor: '#000', shadowOpacity: 0.38, shadowRadius: 14, shadowOffset: { width: 0, height: 7 }, elevation: 12,
   },
-  item: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 54 },
+  item: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 3, minHeight: 50 },
   iconWrap: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
-  label: { fontSize: 10.5, fontWeight: '500' },
+  label: { fontSize: 10, fontWeight: '500' },
 });

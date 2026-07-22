@@ -92,6 +92,7 @@ export function rowToV5(row: Task, today = new Date()): V5Task {
     subtaskCount: 0,
     durationMinutes,
     completedAt: row.completed_at,
+    cancelledAt: row.cancelled_at ?? (cancelled ? row.updated_at : null),
   };
 }
 
@@ -149,6 +150,7 @@ export function previewFromParsed(
   const duration = durationMinutes == null
     ? ''
     : `${Math.floor(durationMinutes / 60) ? `${Math.floor(durationMinutes / 60)} год` : ''}${durationMinutes % 60 ? ` ${durationMinutes % 60} хв` : ''}`.trim();
+  const priority = p.priority ?? inferPriorityFromText(sourceText) ?? 'low';
   return {
     id,
     title: p.title,
@@ -158,14 +160,15 @@ export function previewFromParsed(
     time: previewTime,
     duration,
     category: resolveParsedCategory(p.category, availableCategories, p.title, sourceText),
-    important: false,
+    important: priority !== 'low',
+    priority,
     needsConfirmation: p.needs_confirmation,
   };
 }
 
 /** Preview card → insert payload for the tasks table. user_id defaults to auth.uid(). */
 export function previewToInsert(p: PreviewTask): Record<string, unknown> {
-  const priority: Priority = p.important ? 'high' : 'medium';
+  const priority: Priority = p.priority ?? (p.important ? 'medium' : 'low');
   const parsedDuration = parseDurationMinutes(p.duration);
   return {
     title: p.title,
@@ -180,6 +183,15 @@ export function previewToInsert(p: PreviewTask): Record<string, unknown> {
     needs_confirmation: false,
     source_text: p.title,
   };
+}
+
+export function inferPriorityFromText(value: string): Priority | null {
+  const text = value.toLocaleLowerCase('uk-UA');
+  if (/(термінов\w*|критичн\w*|негайн\w*)/u.test(text)) return 'urgent';
+  if (/(дуже\s+важлив\w*|висок\w*\s+пріоритет\w*)/u.test(text)) return 'high';
+  if (/(неважлив\w*|низьк\w*\s+пріоритет\w*)/u.test(text)) return 'low';
+  if (/(важлив\w*|середн\w*\s+пріоритет\w*)/u.test(text)) return 'medium';
+  return null;
 }
 
 export function enrichParsedTasksWithSchedule(tasks: ParsedTask[], sourceText: string): ParsedTask[] {
@@ -224,6 +236,7 @@ export async function setStatus(id: string, status: 'pending' | 'done' | 'cancel
     .update({
       status,
       completed_at: status === 'done' ? new Date().toISOString() : null,
+      cancelled_at: status === 'cancelled' ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id);

@@ -8,7 +8,7 @@ import type { V5Task } from '../../lib/v5data';
 import { useV5 } from './store';
 import { CategoryTag, ScreenHeader, SegmentedControl } from './ui';
 import { CalendarIcon, ClockIcon, FlagIcon, ChevronRightIcon } from '../../components/icons';
-import { DEFAULT_TIMED_TASK_DURATION_MINUTES, findBoundedFreeWindow, findScheduleConflict, getCompactTimelineRange, getConflictingItemIndexes, getNonHourlyBoundaries, getOccupiedMinutes, clockToMinutes, minutesToClock, snapTaskStartMinutes } from '../../lib/calendarMath';
+import { DEFAULT_TIMED_TASK_DURATION_MINUTES, findScheduleConflict, findWorkingHoursFreeWindows, getCompactTimelineRange, getConflictingItemIndexes, getNonHourlyBoundaries, getOccupiedMinutes, clockToMinutes, minutesToClock, snapTaskStartMinutes } from '../../lib/calendarMath';
 import { isoFromOffset } from '../../lib/tasksRepo';
 import { isTaskInListSection, isTaskOnCalendarDay } from '../../lib/taskSelectors';
 
@@ -23,6 +23,7 @@ type DayCalendarEvent = V5Task & {
 
 export default function CalendarTab() {
   const s = useV5();
+  const scrollRef = useRef<ScrollView>(null);
   const today = new Date();
   const offset = s.calendarDayOffset;
   const selectedDate = new Date(today);
@@ -88,8 +89,14 @@ export default function CalendarTab() {
       {s.calendarView === 'month' ? (
         <MonthView selectedDate={selectedDate} offsetOf={offsetOf} />
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          {s.calendarView === 'day' ? <DayView offset={offset} selectedDate={selectedDate} /> : null}
+        <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          {s.calendarView === 'day' ? (
+            <DayView
+              offset={offset}
+              selectedDate={selectedDate}
+              onScrollToTask={(y) => scrollRef.current?.scrollTo({ y, animated: true })}
+            />
+          ) : null}
           {s.calendarView === 'week' ? <WeekView monday={monday} offsetOf={offsetOf} /> : null}
         </ScrollView>
       )}
@@ -98,9 +105,10 @@ export default function CalendarTab() {
 
 }
 
-function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date }) {
+function DayView({ offset, selectedDate, onScrollToTask }: { offset: number; selectedDate: Date; onScrollToTask: (y: number) => void }) {
   const s = useV5();
   const [expandedTimeline, setExpandedTimeline] = useState(false);
+  const [timelineY, setTimelineY] = useState(0);
   useEffect(() => setExpandedTimeline(false), [offset]);
   const catColor = (name: string) => s.categories[name] || palette.textFaint;
   const dayTasks = s.tasks.filter((task) => isTaskOnCalendarDay(task, offset));
@@ -119,7 +127,8 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
       };
     })
     .sort((a, b) => a.startMinutes - b.startMinutes);
-  const importantTasks = dayTasks.filter((task) => !task.completed && (task.priority === 'urgent' || task.priority === 'high'));
+  const scheduledDayEvents = dayEvents.filter((event) => !event.cancelled);
+  const importantTasks = dayTasks.filter((task) => !task.completed && !task.cancelled && (task.priority === 'urgent' || task.priority === 'high'));
   const importantIds = new Set(importantTasks.map((task) => task.id));
   const untimedTasks = dayTasks
     .filter((task) => !task.time && !importantIds.has(task.id))
@@ -141,12 +150,31 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
   const lastHour = Math.floor(endMinutes / 60);
   const hourCount = timelineRange ? Math.max(0, lastHour - firstHour + 1) : 0;
   const timeToY = (minutes: number) => (minutes - startMinutes) * PX_PER_MIN;
-  const freeWindow = findBoundedFreeWindow(dayEvents, selectedDate.getDay());
+  const rawFreeWindows = s.freeWindowsEnabled && offset >= 0
+    ? findWorkingHoursFreeWindows(scheduledDayEvents, selectedDate.getDay())
+    : [];
+  const now = new Date();
+  const earliestTodayMinute = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
+  const freeWindows = rawFreeWindows
+    .map((window) => offset === 0 ? { ...window, startMinutes: Math.max(window.startMinutes, earliestTodayMinute) } : window)
+    .filter((window) => window.endMinutes - window.startMinutes >= 30);
   const scheduleWindowMinutes = 14 * 60;
-  const occupiedMinutes = getOccupiedMinutes(dayEvents, 8 * 60, 22 * 60);
+  const occupiedMinutes = getOccupiedMinutes(scheduledDayEvents, 8 * 60, 22 * 60);
   const freeMinutes = Math.max(0, scheduleWindowMinutes - occupiedMinutes);
   const loadPercent = Math.min(100, Math.round((occupiedMinutes / scheduleWindowMinutes) * 100));
   const completed = dayTasks.filter((task) => task.completed).length;
+
+  useEffect(() => {
+    const focused = s.calendarFocusTaskId
+      ? dayEvents.find((event) => event.id === s.calendarFocusTaskId)
+      : null;
+    if (!focused || !timelineRange || timelineY <= 0) return undefined;
+    const timer = setTimeout(() => {
+      const eventY = (focused.startMinutes - startMinutes) * PX_PER_MIN;
+      onScrollToTask(Math.max(0, timelineY + eventY - 90));
+    }, 220);
+    return () => clearTimeout(timer);
+  }, [s.calendarFocusTaskId, offset, startMinutes, timelineRange?.endMinutes, timelineY]);
 
   const formatDuration = (minutes: number) => {
     const hours = Math.floor(minutes / 60);
@@ -168,7 +196,7 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
         </View>
         {importantTasks.length === 0 ? <Text style={styles.importantEmpty}>На цей день немає важливих задач</Text> : null}
         {importantTasks.map((task) => (
-          <View key={task.id} style={styles.importantRow}>
+          <View key={task.id} style={[styles.importantRow, s.calendarFocusTaskId === task.id && styles.taskRowFocused]}>
             <View style={[styles.importantBar, { backgroundColor: priorityColor(task.priority) }]} />
             <Pressable onPress={() => s.toggleComplete(task.id)} style={[styles.allDayCheckbox, task.completed ? { backgroundColor: palette.accent } : { borderWidth: 1.5, borderColor: palette.border }]}>
               {task.completed ? <Text style={{ color: palette.text, fontSize: 10 }}>✓</Text> : null}
@@ -192,7 +220,7 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
             <Text style={styles.untimedCount}>{untimedTasks.length}</Text>
           </View>
           {untimedTasks.map((task) => (
-            <View key={task.id} style={styles.untimedRow}>
+            <View key={task.id} style={[styles.untimedRow, s.calendarFocusTaskId === task.id && styles.taskRowFocused]}>
               <Pressable
                 onPress={() => s.toggleComplete(task.id)}
                 accessibilityRole="checkbox"
@@ -236,6 +264,34 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
         </Pressable>
       ) : null}
 
+      {freeWindows.length > 0 ? (
+        <View style={styles.freeWindowsPanel}>
+          <View style={styles.freeWindowsHeader}>
+            <View style={styles.freeWindowsHeading}>
+              <ClockIcon size={15} color={palette.badgeGreen} />
+              <Text style={styles.freeWindowsTitle}>Вільні вікна · 09:00–19:00</Text>
+            </View>
+            <Text style={styles.freeWindowsCount}>{freeWindows.length}</Text>
+          </View>
+          {freeWindows.map((window) => {
+            const duration = window.endMinutes - window.startMinutes;
+            return (
+              <Pressable
+                key={`${window.startMinutes}-${window.endMinutes}`}
+                onPress={() => s.scheduleFreeWindow(isoFromOffset(offset), minutesToClock(window.startMinutes), formatDuration(duration))}
+                style={styles.freeWindowRow}
+              >
+                <View style={styles.freeWindowTimeBlock}>
+                  <Text style={styles.freeWindowTime}>{minutesToClock(window.startMinutes)}–{minutesToClock(window.endMinutes)}</Text>
+                  <Text style={styles.freeWindowDuration}>Вільно {formatDuration(duration)}</Text>
+                </View>
+                <Text style={styles.freeWindowPlan}>+ Запланувати</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
       {expandedTimeline ? (
         <Pressable onPress={() => setExpandedTimeline(false)} style={styles.collapseTimelineButton}>
           <Text style={styles.collapseTimelineText}>Згорнути порожній час</Text>
@@ -263,7 +319,7 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
           <Pressable onPress={() => setExpandedTimeline(true)} style={styles.emptyTimelineButton}><Text style={styles.emptyTimelineButtonText}>Показати всю добу</Text></Pressable>
         </View>
       ) : (
-        <View style={[styles.timeline, { height: totalHeight + 30 }]}>
+        <View onLayout={(event) => setTimelineY(event.nativeEvent.layout.y)} style={[styles.timeline, { height: totalHeight + 30 }]}>
           {Array.from({ length: gridLineCount }, (_, index) => (
             <View
               key={`grid-${index}`}
@@ -290,17 +346,6 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
             );
           })}
 
-          {freeWindow ? (
-            <Pressable
-              onPress={() => s.scheduleFreeWindow(isoFromOffset(offset), minutesToClock(freeWindow.startMinutes), '2 год')}
-              style={[styles.freeWindow, { top: timeToY(freeWindow.startMinutes), height: (freeWindow.endMinutes - freeWindow.startMinutes) * PX_PER_MIN }]}
-            >
-              <Text style={styles.freeWindowTitle}>{minutesToClock(freeWindow.startMinutes)} – {minutesToClock(freeWindow.endMinutes)}</Text>
-              <Text style={styles.freeWindowSub}>Вільне вікно · 2 години</Text>
-              <Text style={styles.freeWindowAction}>+ Запланувати</Text>
-            </Pressable>
-          ) : null}
-
           {dayEvents.map((event) => (
             <DraggableCalendarEvent
               key={event.id}
@@ -309,6 +354,7 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
               timelineStartMinutes={startMinutes}
               timelineEndMinutes={endMinutes}
               timeToY={timeToY}
+              focused={s.calendarFocusTaskId === event.id}
             />
           ))}
         </View>
@@ -351,6 +397,7 @@ interface DraggableCalendarEventProps {
   timelineStartMinutes: number;
   timelineEndMinutes: number;
   timeToY: (minutes: number) => number;
+  focused: boolean;
 }
 
 function DraggableCalendarEvent({
@@ -359,6 +406,7 @@ function DraggableCalendarEvent({
   timelineStartMinutes,
   timelineEndMinutes,
   timeToY,
+  focused,
 }: DraggableCalendarEventProps) {
   const s = useV5();
   const durationMinutes = Math.max(30, event.endMinutes - event.startMinutes);
@@ -458,6 +506,7 @@ function DraggableCalendarEvent({
           transform: [{ translateY }, { scale: dragging ? 1.015 : 1 }],
         },
         dragging && styles.eventCardDragging,
+        focused && styles.eventCardFocused,
       ]}
     >
       <Pressable
@@ -638,6 +687,7 @@ const styles = StyleSheet.create({
   importantCount: { minWidth: 26, height: 26, borderRadius: 9, overflow: 'hidden', textAlign: 'center', textAlignVertical: 'center', paddingTop: 4, color: palette.accent, fontSize: 12, fontWeight: '700', backgroundColor: withAlpha(palette.accent, 0.1) },
   importantEmpty: { fontSize: 12, color: palette.textFaint, paddingTop: 10, paddingBottom: 3 },
   importantRow: { position: 'relative', flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, paddingTop: 9, paddingLeft: 8, marginTop: 4, borderTopWidth: 1, borderTopColor: palette.borderFaint },
+  taskRowFocused: { paddingHorizontal: 8, borderRadius: 10, borderTopColor: withAlpha(palette.accent, 0.38), backgroundColor: withAlpha(palette.accent, 0.07) },
   untimedCard: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 14, paddingVertical: 11, paddingHorizontal: 13, marginBottom: 12 },
   untimedHeader: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   untimedLabel: { color: palette.text, fontSize: 13.5, fontWeight: '700' },
@@ -676,6 +726,7 @@ const styles = StyleSheet.create({
   preciseDot: { position: 'absolute', left: 40, width: 6, height: 6, borderRadius: 3, backgroundColor: palette.accent, opacity: 0.9 },
   preciseLabel: { position: 'absolute', left: 0, fontSize: 10.5, fontWeight: '600', color: palette.accent },
   eventCard: { position: 'absolute', left: 62, right: 0, backgroundColor: palette.surface, borderRadius: 12, borderWidth: 1, borderColor: palette.border, borderLeftWidth: 3, overflow: 'hidden', zIndex: 2, userSelect: 'none' },
+  eventCardFocused: { borderColor: withAlpha(palette.accent, 0.72), backgroundColor: withAlpha(palette.accent, 0.08), zIndex: 4 },
   eventCardDragging: { zIndex: 20, elevation: 12, borderColor: withAlpha(palette.accent, 0.82), backgroundColor: palette.surfaceAlt, shadowColor: palette.accent, shadowOpacity: 0.28, shadowRadius: 14, shadowOffset: { width: 0, height: 6 } },
   eventPressable: { flex: 1, minHeight: 44, paddingHorizontal: 12, paddingVertical: 9, userSelect: 'none' },
   eventTime: { fontSize: 11, color: palette.textFaint },
@@ -686,10 +737,16 @@ const styles = StyleSheet.create({
   eventFlag: { position: 'absolute', top: 11, right: 10 },
   eventDragGrip: { position: 'absolute', right: 9, bottom: 5, color: palette.textFainter, fontSize: 16, lineHeight: 18, userSelect: 'none' },
   eventDragGripActive: { color: palette.accent },
-  freeWindow: { position: 'absolute', left: 62, right: 0, borderRadius: 12, borderWidth: 1.5, borderColor: palette.chipBorder, borderStyle: 'dashed', paddingHorizontal: 14, justifyContent: 'center', backgroundColor: withAlpha(palette.bg, 0.84) },
-  freeWindowTitle: { fontSize: 13.5, color: palette.text, fontWeight: '600' },
-  freeWindowSub: { fontSize: 11.5, color: palette.textMuted, marginTop: 2 },
-  freeWindowAction: { marginTop: 8, color: palette.accent, fontSize: 12, fontWeight: '600' },
+  freeWindowsPanel: { marginBottom: 12, padding: 12, borderRadius: 15, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
+  freeWindowsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  freeWindowsHeading: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  freeWindowsTitle: { color: palette.textSecondary, fontSize: 12.5, fontWeight: '700' },
+  freeWindowsCount: { minWidth: 24, height: 24, lineHeight: 24, textAlign: 'center', color: palette.badgeGreen, fontSize: 11, fontWeight: '800', borderRadius: 8, overflow: 'hidden', backgroundColor: withAlpha(palette.badgeGreen, 0.1) },
+  freeWindowRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 11, backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.borderFaint, marginTop: 6 },
+  freeWindowTimeBlock: { flex: 1, minWidth: 0 },
+  freeWindowTime: { color: palette.text, fontSize: 12.5, fontWeight: '700' },
+  freeWindowDuration: { color: palette.textMuted, fontSize: 11, marginTop: 2 },
+  freeWindowPlan: { color: palette.badgeGreen, fontSize: 11.5, fontWeight: '700' },
   statsCard: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 16, padding: 16, marginTop: 18 },
   statsTitle: { fontSize: 13, fontWeight: '600', color: palette.text, marginBottom: 12 },
   statsRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 12 },

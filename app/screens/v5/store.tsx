@@ -9,6 +9,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Vibration } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import type { V5Task, PreviewTask } from '../../lib/v5data';
 import { categoryColors as seedCategories, type Priority } from '../../theme';
 import { getSupabaseClient } from '../../lib/supabase';
@@ -19,13 +20,14 @@ import {
   updateTaskFields as persistTaskFields,
 } from '../../lib/tasksRepo';
 import type { EditableTaskFields } from '../../lib/tasksRepo';
-import { clockToMinutes, DEFAULT_TIMED_TASK_DURATION_MINUTES, durationBetweenClocks, extractScheduleFromText } from '../../lib/calendarMath';
+import { clockToMinutes, DEFAULT_TIMED_TASK_DURATION_MINUTES, durationBetweenClocks, extractScheduleFromText, minutesToClock } from '../../lib/calendarMath';
 import {
   hasSeenUsageGuide,
   markUsageGuideSeen,
   shouldAutoOpenUsageGuide,
   USAGE_GUIDE_PENDING_METADATA_KEY,
 } from '../../lib/usageGuide';
+import { resolveTaskScheduleCommand, splitTaskCommandText, type TaskScheduleCommand } from '../../lib/taskCommands';
 
 export type TabKey = 'home' | 'list' | 'calendar' | 'analytics' | 'profile';
 export type VoiceState = 'idle' | 'recording' | 'processing';
@@ -45,6 +47,8 @@ interface V5State {
   isPaused: boolean;
   previewOpen: boolean;
   previewTasks: PreviewTask[];
+  previewCommandText: string | null;
+  previewCommand: TaskScheduleCommand | null;
   editingPreviewId: string | null;
   previewError: string | null;
   timePickerId: string | null;
@@ -69,6 +73,9 @@ interface V5State {
   userFullName: string;
   userEmail: string;
   userInitials: string;
+  avatarUrl: string | null;
+  avatarUploading: boolean;
+  avatarError: string | null;
   taskDetailId: string | null;
   shareSheetOpen: boolean;
   shareSuccessName: string | null;
@@ -77,11 +84,13 @@ interface V5State {
   personalDataOpen: boolean;
   appearanceOpen: boolean;
   notificationsEnabled: boolean;
+  freeWindowsEnabled: boolean;
   securityInfoOpen: boolean;
   aboutAppOpen: boolean;
   usageGuideOpen: boolean;
   calendarView: CalendarView;
   calendarDayOffset: number;
+  calendarFocusTaskId: string | null;
   conflictTaskIds: string[];
   conflictStartMinutes: number | null;
   conflictEndMinutes: number | null;
@@ -103,6 +112,8 @@ const initialState: V5State = {
   isPaused: false,
   previewOpen: false,
   previewTasks: [],
+  previewCommandText: null,
+  previewCommand: null,
   editingPreviewId: null,
   previewError: null,
   timePickerId: null,
@@ -127,6 +138,9 @@ const initialState: V5State = {
   userFullName: 'Користувач',
   userEmail: '',
   userInitials: '—',
+  avatarUrl: null,
+  avatarUploading: false,
+  avatarError: null,
   taskDetailId: null,
   shareSheetOpen: false,
   shareSuccessName: null,
@@ -135,11 +149,13 @@ const initialState: V5State = {
   personalDataOpen: false,
   appearanceOpen: false,
   notificationsEnabled: true,
+  freeWindowsEnabled: true,
   securityInfoOpen: false,
   aboutAppOpen: false,
   usageGuideOpen: false,
   calendarView: 'day',
   calendarDayOffset: 0,
+  calendarFocusTaskId: null,
   conflictTaskIds: [],
   conflictStartMinutes: null,
   conflictEndMinutes: null,
@@ -215,6 +231,8 @@ export interface V5Store extends V5State {
   clearListFilters: () => void;
   openAvatarMenu: () => void;
   closeAvatarMenu: () => void;
+  changeAvatarPhoto: (source: 'library' | 'camera') => Promise<boolean>;
+  removeAvatarPhoto: () => Promise<void>;
   openLogoutConfirm: () => void;
   closeLogoutConfirm: () => void;
   confirmLogout: () => void;
@@ -232,6 +250,7 @@ export interface V5Store extends V5State {
   openAppearance: () => void;
   closeAppearance: () => void;
   toggleNotifications: () => void;
+  toggleFreeWindows: () => void;
   openSecurityInfo: () => void;
   closeSecurityInfo: () => void;
   openAboutApp: () => void;
@@ -248,6 +267,7 @@ export interface V5Store extends V5State {
   openConflictTasks: (ids: string[], startMinutes: number | null, endMinutes: number | null) => void;
   closeConflictTasks: () => void;
   goToToday: () => void;
+  openTaskInCalendar: (id: string) => void;
   setCalendarView: (v: CalendarView) => void;
   setCalendarDay: (offset: number) => void;
   prevDay: () => void;
@@ -263,6 +283,7 @@ export interface UserProfile {
   fullName: string;
   email: string;
   initials: string;
+  avatarUrl?: string | null;
   usageGuidePending?: boolean;
 }
 
@@ -271,9 +292,10 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
   const categoryStorageKey = `voice-todo:category-colors:${profile?.email || 'local'}`;
   const taskOrderStorageKey = `voice-todo:task-order:${profile?.email || 'local'}`;
   const notificationStorageKey = `voice-todo:notifications:${profile?.email || 'local'}`;
+  const freeWindowsStorageKey = `voice-todo:free-windows:${profile?.email || 'local'}`;
   const [state, setState] = useState<V5State>(() =>
     profile
-      ? { ...initialState, userName: profile.name, userFullName: profile.fullName, userEmail: profile.email, userInitials: profile.initials }
+      ? { ...initialState, userName: profile.name, userFullName: profile.fullName, userEmail: profile.email, userInitials: profile.initials, avatarUrl: profile.avatarUrl ?? null }
       : initialState
   );
   const nextPreviewId = useRef(1);
@@ -285,6 +307,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
   const finishedRef = useRef(false);
   const silenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const calendarFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearSilenceTimer = useCallback(() => {
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
@@ -295,7 +318,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
     clearSilenceTimer();
     silenceTimer.current = setTimeout(() => {
       if (!finishedRef.current && !pausedRef.current) onSilence();
-    }, 5000);
+    }, 3000);
   }, [clearSilenceTimer]);
 
   const set: V5Store['set'] = (patch) =>
@@ -327,6 +350,17 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       .catch(() => { /* keep notifications enabled by default */ });
     return () => { active = false; };
   }, [notificationStorageKey]);
+
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(freeWindowsStorageKey)
+      .then((value) => {
+        if (!active || value == null) return;
+        setState((current) => ({ ...current, freeWindowsEnabled: value !== 'false' }));
+      })
+      .catch(() => { /* keep free-window suggestions enabled by default */ });
+    return () => { active = false; };
+  }, [freeWindowsStorageKey]);
 
   useEffect(() => {
     if (!profile?.usageGuidePending) return undefined;
@@ -369,6 +403,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
     return () => {
       if (recordTimer.current) clearInterval(recordTimer.current);
       if (undoTimer.current) clearTimeout(undoTimer.current);
+      if (calendarFocusTimer.current) clearTimeout(calendarFocusTimer.current);
       clearSilenceTimer();
       try { recognitionRef.current?.abort(); } catch { /* ignore */ }
       try { if (channel) getSupabaseClient().removeChannel(channel); } catch { /* ignore */ }
@@ -387,35 +422,45 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
   const openPreviewFromText = useCallback(async (text: string) => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
     const categoryNames = Object.keys(state.categories);
-    const parsed = await Promise.race([
-      parseTaskText(text, categoryNames),
+    const split = splitTaskCommandText(text);
+    const parsed = split.taskText ? await Promise.race([
+      parseTaskText(split.taskText, categoryNames),
       new Promise<Awaited<ReturnType<typeof parseTaskText>>>((resolve) => {
         timeout = setTimeout(() => resolve([]), 8000);
       }),
-    ]);
+    ]) : [];
     if (timeout) clearTimeout(timeout);
-    const inferred = extractScheduleFromText(text);
+    const inferred = extractScheduleFromText(split.taskText);
     const items: PreviewTask[] = parsed.length
-      ? parsed.map((p) => previewFromParsed(p, 'p' + nextPreviewId.current++, categoryNames, text))
-      : [{
+      ? parsed.map((p) => previewFromParsed(p, 'p' + nextPreviewId.current++, categoryNames, split.taskText))
+      : split.taskText ? [{
           id: 'p' + nextPreviewId.current++,
-          title: text,
+          title: split.taskText,
           iso: isoOf(new Date()),
           time: inferred?.startTime ?? '',
           duration: inferred ? `${inferred.durationMinutes} хв` : '',
           category: previewFromParsed({
-            title: text,
+            title: split.taskText,
             date: null,
             time: inferred?.startTime ?? null,
             is_all_day: inferred == null,
             needs_confirmation: false,
             duration_minutes: inferred?.durationMinutes ?? null,
-          }, 'fallback', categoryNames, text).category,
+          }, 'fallback', categoryNames, split.taskText).category,
           important: false,
           needsConfirmation: false,
-        }];
-    setState((s) => ({ ...s, voiceState: 'idle', previewTasks: items, previewOpen: true, previewError: null }));
-  }, [state.categories]);
+        }] : [];
+    const previewCommand = resolveTaskScheduleCommand(split.commandText, items, state.tasks);
+    setState((s) => ({
+      ...s,
+      voiceState: 'idle',
+      previewTasks: items,
+      previewCommandText: split.commandText,
+      previewCommand,
+      previewOpen: items.length > 0 || previewCommand != null,
+      previewError: items.length === 0 && previewCommand == null ? 'Не вдалося розпізнати задачу або команду.' : null,
+    }));
+  }, [state.categories, state.tasks]);
 
   const store = useMemo<V5Store>(() => {
     const api: V5Store = {
@@ -429,7 +474,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
         const completedAt = nextDone ? new Date().toISOString() : null;
         setState((s) => ({
           ...s,
-          tasks: s.tasks.map((x) => (x.id === id ? { ...x, completed: nextDone, cancelled: false, completedAt, overdue: nextDone ? false : isOverdueNow({ ...x, completed: false, cancelled: false }) } : x)),
+          tasks: s.tasks.map((x) => (x.id === id ? { ...x, completed: nextDone, cancelled: false, completedAt, cancelledAt: null, overdue: nextDone ? false : isOverdueNow({ ...x, completed: false, cancelled: false }) } : x)),
           openSwipeId: s.openSwipeId === id ? null : s.openSwipeId,
           undoTaskId: nextDone ? id : (s.undoTaskId === id ? null : s.undoTaskId),
           undoTaskKind: nextDone ? 'completed' : (s.undoTaskId === id ? null : s.undoTaskKind),
@@ -460,9 +505,10 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       },
       cancelTask: (id) => {
         if (undoTimer.current) clearTimeout(undoTimer.current);
+        const cancelledAt = new Date().toISOString();
         setState((s) => ({
           ...s,
-          tasks: s.tasks.map((x) => (x.id === id ? { ...x, completed: false, cancelled: true, completedAt: null, overdue: false } : x)),
+          tasks: s.tasks.map((x) => (x.id === id ? { ...x, completed: false, cancelled: true, completedAt: null, cancelledAt, overdue: false } : x)),
           conflictTaskIds: s.conflictTaskIds.filter((taskId) => taskId !== id),
           openSwipeId: null,
           undoTaskId: id,
@@ -497,7 +543,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
           ...s,
           tasks: s.tasks.map((x) => {
             if (x.id !== id) return x;
-            const restored = { ...x, completed: false, cancelled: false, completedAt: null };
+            const restored = { ...x, completed: false, cancelled: false, completedAt: null, cancelledAt: null };
             return { ...restored, overdue: isOverdueNow(restored) };
           }),
           undoTaskId: s.undoTaskId === id ? null : s.undoTaskId,
@@ -623,7 +669,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
 
       deletePreviewTask: (id) => set((s) => ({ previewTasks: s.previewTasks.filter((p) => p.id !== id), previewError: null })),
       resolvePreviewTime: (id) => set((s) => ({ previewTasks: s.previewTasks.map((p) => (p.id === id ? { ...p, time: '19:00', needsConfirmation: false } : p)) })),
-      cancelPreview: () => set({ previewOpen: false, previewTasks: [], editingPreviewId: null, previewError: null }),
+      cancelPreview: () => set({ previewOpen: false, previewTasks: [], previewCommandText: null, previewCommand: null, editingPreviewId: null, previewError: null }),
       togglePreviewEdit: (id) => set((s) => ({ editingPreviewId: s.editingPreviewId === id ? null : id })),
       updatePreviewField: (id, field, value) => set((s) => ({
         previewTasks: s.previewTasks.map((p) => (p.id === id ? ({ ...p, [field]: value } as PreviewTask) : p)),
@@ -643,7 +689,11 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
         const opts = Object.keys(state.categories);
         set((s) => ({ previewTasks: s.previewTasks.map((p) => (p.id === id ? { ...p, category: opts[(opts.indexOf(p.category) + 1) % opts.length] } : p)) }));
       },
-      togglePreviewImportant: (id) => set((s) => ({ previewTasks: s.previewTasks.map((p) => (p.id === id ? { ...p, important: !p.important } : p)) })),
+      togglePreviewImportant: (id) => set((s) => ({
+        previewTasks: s.previewTasks.map((p) => p.id === id
+          ? { ...p, important: !p.important, priority: p.important ? 'low' : 'medium' }
+          : p),
+      })),
       confirmSave: () => {
         const invalidTask = state.previewTasks.find((task) => isPreviewScheduledInPast(task));
         if (invalidTask) {
@@ -655,20 +705,30 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
           return;
         }
         const payloads = state.previewTasks.map(previewToInsert);
-        set({ previewOpen: false, previewTasks: [], editingPreviewId: null, previewError: null });
-        insertTasks(payloads)
-          .then((rows) => {
-            if (rows.length === 0) { reload(); return; }
+        const command = resolveTaskScheduleCommand(state.previewCommandText, state.previewTasks, state.tasks) ?? state.previewCommand;
+        const commandTasks = command
+          ? state.tasks.filter((task) => command.taskIds.includes(task.id))
+          : [];
+        const commandRequests = commandTasks.map((task) => {
+          if (command?.kind === 'cancel') return setStatus(task.id, 'cancelled');
+          const shiftedStart = clockToMinutes(task.time) + (command?.shiftMinutes ?? 0);
+          const dayShift = Math.floor(shiftedStart / (24 * 60));
+          return persistTaskFields(task.id, {
+            time: minutesToClock(shiftedStart),
+            dueInDays: (task.dueInDays ?? 0) + dayShift,
+          });
+        });
+        set({ previewOpen: false, previewTasks: [], previewCommandText: null, previewCommand: null, editingPreviewId: null, previewError: null });
+        Promise.all([insertTasks(payloads), Promise.all(commandRequests)])
+          .then(([insertedRows]) => {
+            if (commandRequests.length > 0 || insertedRows.length === 0) { reload(); return; }
             const now = new Date();
-            set((current) => {
-              const insertedIds = new Set(rows.map((row) => row.id));
-              return {
-                tasks: [
-                  ...current.tasks.filter((task) => !insertedIds.has(task.id)),
-                  ...rows.map((row) => rowToV5(row, now)),
-                ],
-              };
-            });
+            set((current) => ({
+              tasks: [
+                ...current.tasks.filter((task) => !insertedRows.some((row) => row.id === task.id)),
+                ...insertedRows.map((row) => rowToV5(row, now)),
+              ],
+            }));
           })
           .catch(() => { reload(); });
       },
@@ -763,7 +823,79 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       clearListFilters: () => set({ listPriorityFilters: [], listCategoryFilters: [] }),
 
       openAvatarMenu: () => set({ avatarMenuOpen: true }),
-      closeAvatarMenu: () => set({ avatarMenuOpen: false }),
+      closeAvatarMenu: () => set({ avatarMenuOpen: false, avatarError: null }),
+      changeAvatarPhoto: async (source) => {
+        set({ avatarUploading: true, avatarError: null });
+        try {
+          const permission = source === 'camera'
+            ? await ImagePicker.requestCameraPermissionsAsync()
+            : await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!permission.granted) {
+            set({
+              avatarUploading: false,
+              avatarError: source === 'camera'
+                ? 'Дозвольте доступ до камери в налаштуваннях пристрою.'
+                : 'Дозвольте доступ до фото в налаштуваннях пристрою.',
+            });
+            return false;
+          }
+          const options: ImagePicker.ImagePickerOptions = {
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.78,
+          };
+          const result = source === 'camera'
+            ? await ImagePicker.launchCameraAsync(options)
+            : await ImagePicker.launchImageLibraryAsync(options);
+          if (result.canceled || !result.assets[0]) {
+            set({ avatarUploading: false });
+            return false;
+          }
+          const client = getSupabaseClient();
+          const { data: sessionData } = await client.auth.getSession();
+          const userId = sessionData.session?.user.id;
+          if (!userId) throw new Error('auth');
+          const asset = result.assets[0];
+          const response = await fetch(asset.uri);
+          const bytes = await response.arrayBuffer();
+          const mimeType = asset.mimeType || 'image/jpeg';
+          const extension = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : mimeType.includes('heic') ? 'heic' : 'jpg';
+          const path = `${userId}/avatar.${extension}`;
+          const { error: uploadError } = await client.storage.from('avatars').upload(path, bytes, {
+            contentType: mimeType,
+            upsert: true,
+            cacheControl: '3600',
+          });
+          if (uploadError) throw uploadError;
+          const publicUrl = client.storage.from('avatars').getPublicUrl(path).data.publicUrl;
+          const avatarUrl = `${publicUrl}?v=${Date.now()}`;
+          const { error: metadataError } = await client.auth.updateUser({ data: { avatar_url: avatarUrl } });
+          if (metadataError) throw metadataError;
+          set({ avatarUrl, avatarUploading: false, avatarMenuOpen: false, avatarError: null });
+          return true;
+        } catch {
+          set({ avatarUploading: false, avatarError: 'Не вдалося зберегти фото. Перевірте з’єднання та спробуйте ще раз.' });
+          return false;
+        }
+      },
+      removeAvatarPhoto: async () => {
+        set({ avatarUploading: true, avatarError: null });
+        try {
+          const client = getSupabaseClient();
+          const { data: sessionData } = await client.auth.getSession();
+          const userId = sessionData.session?.user.id;
+          if (!userId) throw new Error('auth');
+          const { data: files } = await client.storage.from('avatars').list(userId);
+          const paths = (files ?? []).map((file) => `${userId}/${file.name}`);
+          if (paths.length) await client.storage.from('avatars').remove(paths);
+          const { error } = await client.auth.updateUser({ data: { avatar_url: null } });
+          if (error) throw error;
+          set({ avatarUrl: null, avatarUploading: false, avatarMenuOpen: false });
+        } catch {
+          set({ avatarUploading: false, avatarError: 'Не вдалося видалити фото. Спробуйте ще раз.' });
+        }
+      },
       openLogoutConfirm: () => set({ logoutConfirmOpen: true }),
       closeLogoutConfirm: () => set({ logoutConfirmOpen: false }),
       confirmLogout: () => { set({ logoutConfirmOpen: false, activeTab: 'home' }); onSignOut?.(); },
@@ -782,14 +914,18 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
           : fields;
         setState((current) => ({
           ...current,
-          tasks: current.tasks.map((task) => task.id === id ? { ...task, ...normalizedFields } : task),
+          tasks: current.tasks.map((task) => {
+            if (task.id !== id) return task;
+            const updated = { ...task, ...normalizedFields };
+            return { ...updated, overdue: isOverdueNow(updated) };
+          }),
         }));
         persistTaskFields(id, normalizedFields).catch(() => { reload(); });
       },
       openAchievements: () => set({ achievementsOpen: true }),
       closeAchievements: () => set({ achievementsOpen: false }),
-      openPersonalData: () => set({ personalDataOpen: true }),
-      closePersonalData: () => set({ personalDataOpen: false }),
+      openPersonalData: () => set({ personalDataOpen: true, avatarError: null }),
+      closePersonalData: () => set({ personalDataOpen: false, avatarError: null }),
       saveNickname: async (rawNickname) => {
         const nickname = rawNickname.trim().replace(/\s+/g, ' ');
         if (nickname.length < 2 || nickname.length > 40) return false;
@@ -811,6 +947,11 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
         const enabled = !state.notificationsEnabled;
         set({ notificationsEnabled: enabled });
         AsyncStorage.setItem(notificationStorageKey, String(enabled)).catch(() => { /* keep in-memory preference */ });
+      },
+      toggleFreeWindows: () => {
+        const enabled = !state.freeWindowsEnabled;
+        set({ freeWindowsEnabled: enabled });
+        AsyncStorage.setItem(freeWindowsStorageKey, String(enabled)).catch(() => { /* keep in-memory preference */ });
       },
       openSecurityInfo: () => set({ securityInfoOpen: true }),
       closeSecurityInfo: () => set({ securityInfoOpen: false }),
@@ -869,6 +1010,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
             completed: false,
             cancelled: false,
             completedAt: null,
+            cancelledAt: null,
             overdue: isOverdueNow({ ...task, completed: false, cancelled: false }),
           } : task),
         }));
@@ -896,16 +1038,40 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
         conflictEndMinutes: null,
       }),
 
-      goToToday: () => set({ calendarDayOffset: 0, calendarView: 'day' }),
+      goToToday: () => set({ calendarDayOffset: 0, calendarView: 'day', calendarFocusTaskId: null }),
+      openTaskInCalendar: (id) => {
+        const task = state.tasks.find((item) => item.id === id);
+        if (calendarFocusTimer.current) {
+          clearTimeout(calendarFocusTimer.current);
+          calendarFocusTimer.current = null;
+        }
+        if (!task || task.dueInDays == null) {
+          set({ activeTab: 'list', calendarFocusTaskId: null });
+          return;
+        }
+        set({
+          activeTab: 'calendar',
+          calendarView: 'day',
+          calendarDayOffset: task.dueInDays,
+          calendarFocusTaskId: id,
+          taskDetailId: null,
+        });
+        calendarFocusTimer.current = setTimeout(() => {
+          setState((current) => current.calendarFocusTaskId === id
+            ? { ...current, calendarFocusTaskId: null }
+            : current);
+          calendarFocusTimer.current = null;
+        }, 1500);
+      },
       setCalendarView: (v) => set({ calendarView: v }),
-      setCalendarDay: (offset) => set({ calendarDayOffset: offset }),
-      prevDay: () => set((s) => ({ calendarDayOffset: s.calendarDayOffset - 1 })),
-      nextDay: () => set((s) => ({ calendarDayOffset: s.calendarDayOffset + 1 })),
+      setCalendarDay: (offset) => set({ calendarDayOffset: offset, calendarFocusTaskId: null }),
+      prevDay: () => set((s) => ({ calendarDayOffset: s.calendarDayOffset - 1, calendarFocusTaskId: null })),
+      nextDay: () => set((s) => ({ calendarDayOffset: s.calendarDayOffset + 1, calendarFocusTaskId: null })),
       toggleAllDay: (id) => api.toggleComplete(id),
     };
     return api;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, onSignOut, reload, openPreviewFromText, clearSilenceTimer, startSilenceTimer, categoryStorageKey, taskOrderStorageKey, notificationStorageKey, guideIdentity, profile?.usageGuidePending]);
+  }, [state, onSignOut, reload, openPreviewFromText, clearSilenceTimer, startSilenceTimer, categoryStorageKey, taskOrderStorageKey, notificationStorageKey, freeWindowsStorageKey, guideIdentity, profile?.usageGuidePending]);
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

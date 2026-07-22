@@ -22,6 +22,7 @@ export interface V5Task {
   subtaskCount: number;
   durationMinutes: number | null;
   completedAt: string | null;
+  cancelledAt?: string | null;
 }
 
 export interface PreviewTask {
@@ -32,7 +33,26 @@ export interface PreviewTask {
   duration: string;
   category: string;
   important: boolean;
+  priority?: Priority;
   needsConfirmation: boolean;
+}
+
+export function formatTaskDateFromOffset(offset: number | null, referenceDate = new Date()): string | null {
+  if (offset == null) return null;
+  const date = new Date(referenceDate);
+  date.setDate(referenceDate.getDate() + offset);
+  return date.toLocaleDateString('uk-UA', { day: 'numeric', month: 'short' }).replace('.', '');
+}
+
+export function formatTaskEventDate(value: string | null | undefined, includeYear = true): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('uk-UA', {
+    day: 'numeric',
+    month: 'short',
+    ...(includeYear ? { year: 'numeric' as const } : {}),
+  }).replace('.', '');
 }
 
 export function isTaskCurrentOrUpcoming(task: V5Task, now = new Date()): boolean {
@@ -57,6 +77,13 @@ export function compareTasksChronologically(a: V5Task, b: V5Task): number {
   const timeOrder = aTime.localeCompare(bTime);
   if (timeOrder !== 0) return timeOrder;
   return a.title.localeCompare(b.title, 'uk');
+}
+
+export function getNearestTasks(tasks: V5Task[], now = new Date(), limit = 3): V5Task[] {
+  return tasks
+    .filter((task) => isTaskCurrentOrUpcoming(task, now))
+    .sort(compareTasksChronologically)
+    .slice(0, Math.max(0, limit));
 }
 
 export const weekdaysFull = ['неділя', 'понеділок', 'вівторок', 'середа', 'четвер', "п'ятниця", 'субота'];

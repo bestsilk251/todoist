@@ -24,26 +24,33 @@ Rules:
    - "needs_confirmation": true when the date or time is ambiguous (for example "at 3" with no am/pm indication), false otherwise.
    - "duration_minutes": planned duration as a positive integer number of minutes. If "time" is present but the user gave no duration or end time, use 60. If "time" is null, use null. For an explicit range such as "з 10:15 до 11:40", set "time" to the start ("10:15") and calculate the exact duration (85). Handle ranges across midnight.
    - "category": one exact value from the available category labels, or null.
+   - "priority": "urgent", "high", "medium", "low", or null. The Ukrainian words "важлива", "важливий", or "важливо" mean "medium" unless the user explicitly says high or urgent.
 3. Category rules:
    - If the user explicitly writes or says a category (for example "категорія Робота"), use the matching available label and remove the category phrase from the title.
    - Otherwise infer a category only when the task meaning clearly matches an available label (work, study, health, home, personal, or a custom label explicitly mentioned by the user).
    - Never invent a category outside the available labels. Use null when there is no confident match.
-4. Never invent a duration. Extract it only from an explicit start/end range or phrases such as "на 2 години", "1 год 30 хв", or "for 45 minutes".
-5. Return ONLY a JSON array of these objects. No prose, no explanation, no markdown code fences.
+4. Priority rules:
+   - "терміново", "негайно", or "критично" means "urgent".
+   - "високий пріоритет" or "дуже важлива" means "high".
+   - "важлива", "важливий", "важливо", or "середній пріоритет" means "medium".
+   - "низький пріоритет" or "неважлива" means "low".
+   - Use null when no priority was stated.
+5. Never invent a duration. Extract it only from an explicit start/end range or phrases such as "на 2 години", "1 год 30 хв", or "for 45 minutes".
+6. Return ONLY a JSON array of these objects. No prose, no explanation, no markdown code fences.
 
 Examples:
 
 Input (uk): "сьогодні до лікаря на 3 а завтра на 4 купити телефон"
-Output: [{"title":"До лікаря","date":"${ctx.currentDate}","time":"15:00","is_all_day":false,"needs_confirmation":true,"duration_minutes":60,"category":"Здоров'я"},{"title":"Купити телефон","date":"${tomorrow}","time":"16:00","is_all_day":false,"needs_confirmation":true,"duration_minutes":60,"category":"Особисте"}]
+Output: [{"title":"До лікаря","date":"${ctx.currentDate}","time":"15:00","is_all_day":false,"needs_confirmation":true,"duration_minutes":60,"category":"Здоров'я","priority":null},{"title":"Купити телефон","date":"${tomorrow}","time":"16:00","is_all_day":false,"needs_confirmation":true,"duration_minutes":60,"category":"Особисте","priority":null}]
 
 Input (en): "call mom tomorrow morning"
-Output: [{"title":"Call mom","date":"${tomorrow}","time":null,"is_all_day":true,"needs_confirmation":false,"duration_minutes":null,"category":"Особисте"}]
+Output: [{"title":"Call mom","date":"${tomorrow}","time":null,"is_all_day":true,"needs_confirmation":false,"duration_minutes":null,"category":"Особисте","priority":null}]
 
 Input (uk): "нагадай купити хліб"
-Output: [{"title":"Купити хліб","date":null,"time":null,"is_all_day":true,"needs_confirmation":false,"duration_minutes":null,"category":"Дім"}]
+Output: [{"title":"Купити хліб","date":null,"time":null,"is_all_day":true,"needs_confirmation":false,"duration_minutes":null,"category":"Дім","priority":null}]
 
 Input (uk): "завтра працювати над презентацією з 10:15 до 11:40"
-Output: [{"title":"Працювати над презентацією","date":"${tomorrow}","time":"10:15","is_all_day":false,"needs_confirmation":false,"duration_minutes":85,"category":"Робота"}]`;
+Output: [{"title":"Працювати над презентацією","date":"${tomorrow}","time":"10:15","is_all_day":false,"needs_confirmation":false,"duration_minutes":85,"category":"Робота","priority":null}]`;
 }
 
 /** Adds `days` to a YYYY-MM-DD string and returns the same format. */

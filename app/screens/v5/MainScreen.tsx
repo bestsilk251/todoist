@@ -1,6 +1,6 @@
 /** Root of the dark v5 experience: hosts the active tab, bottom nav and every
  * overlay, all reading from the shared V5 store. */
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { palette } from '../../theme';
 import { V5Provider, useV5, type UserProfile } from './store';
@@ -23,10 +23,21 @@ import {
   CategoryEditor, AvatarMenu, LogoutConfirm, ShareSheet, PersonalDataSheet, AppearanceSheet,
   AchievementsSheet, SecurityInfoSheet, AboutAppSheet,
 } from './Sheets';
+import { fetchAnalytics } from '../../lib/analyticsRepo';
+import { getWeekRange } from '../../lib/analyticsMath';
 
 function Shell() {
   const s = useV5();
   const dim = s.voiceState === 'recording';
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Kyiv';
+      void fetchAnalytics(getWeekRange(new Date(), timezone), timezone)
+        .catch(() => { /* AnalyticsScreen keeps the visible retry state. */ });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <View style={styles.root}>

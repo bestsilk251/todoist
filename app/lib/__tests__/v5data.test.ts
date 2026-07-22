@@ -1,4 +1,4 @@
-import { compareTasksChronologically, isTaskCurrentOrUpcoming, type V5Task } from '../v5data';
+import { compareTasksChronologically, formatTaskEventDate, getNearestTasks, isTaskCurrentOrUpcoming, type V5Task } from '../v5data';
 
 function task(overrides: Partial<V5Task>): V5Task {
   return {
@@ -43,6 +43,17 @@ describe('nearest task filtering', () => {
   it('excludes cancelled tasks from nearest tasks', () => {
     expect(isTaskCurrentOrUpcoming(task({ cancelled: true, time: '13:00' }), now)).toBe(false);
   });
+
+  it('returns only the three chronologically nearest tasks', () => {
+    const tasks = [
+      task({ id: 'later-priority', dueInDays: 4, time: '09:00', priority: 'urgent' }),
+      task({ id: 'third', dueInDays: 1, time: '09:00' }),
+      task({ id: 'first', dueInDays: 0, time: '12:45' }),
+      task({ id: 'second', dueInDays: 0, time: '13:00' }),
+    ];
+
+    expect(getNearestTasks(tasks, now).map((item) => item.id)).toEqual(['first', 'second', 'third']);
+  });
 });
 
 describe('chronological task sorting', () => {
@@ -58,5 +69,15 @@ describe('chronological task sorting', () => {
     expect(tasks.sort(compareTasksChronologically).map((item) => item.id)).toEqual([
       'early', 'late', 'all-day', 'tomorrow', 'no-date',
     ]);
+  });
+});
+
+describe('task event date formatting', () => {
+  it('can omit the year for compact completed-task labels', () => {
+    const value = new Date(2026, 6, 22, 12, 0).toISOString();
+    const label = formatTaskEventDate(value, false);
+
+    expect(label).toContain('22');
+    expect(label).not.toContain('2026');
   });
 });

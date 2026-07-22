@@ -1,7 +1,7 @@
 /** Secondary overlays: category-color editor, avatar menu, logout confirm,
  * share sheet. Each returns null when its state flag is off. */
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
+import { Image, View, Text, TextInput, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { palette, withAlpha, categorySwatches } from '../../theme';
 import { useV5 } from './store';
 import { PersonPlusIcon, PeopleIcon, PlusIcon, CaretRight } from '../../components/icons';
@@ -151,16 +151,19 @@ export function CategoryEditor() {
 export function AvatarMenu() {
   const s = useV5();
   if (!s.avatarMenuOpen) return null;
-  const items = ['Завантажити фото', 'Зробити фото', 'Змінити ініціали'];
   return (
     <Pressable onPress={s.closeAvatarMenu} style={styles.overlayEnd}>
       <Pressable onPress={() => {}} style={styles.sheet}>
         <View style={styles.head}><Text style={styles.title}>Фото профілю</Text></View>
         <View style={{ paddingHorizontal: 20, paddingTop: 6, paddingBottom: 10 }}>
-          {items.map((label) => (
-            <Pressable key={label} onPress={s.closeAvatarMenu} style={styles.menuItem}><Text style={styles.menuText}>{label}</Text></Pressable>
-          ))}
-          <Pressable onPress={s.closeAvatarMenu} style={[styles.menuItem, { borderBottomWidth: 0 }]}><Text style={[styles.menuText, { color: palette.logout }]}>Видалити фото</Text></Pressable>
+          <Pressable disabled={s.avatarUploading} onPress={() => { void s.changeAvatarPhoto('library'); }} style={styles.menuItem}><Text style={styles.menuText}>Завантажити фото</Text></Pressable>
+          <Pressable disabled={s.avatarUploading} onPress={() => { void s.changeAvatarPhoto('camera'); }} style={styles.menuItem}><Text style={styles.menuText}>Зробити фото</Text></Pressable>
+          <Pressable onPress={() => { s.closeAvatarMenu(); s.openPersonalData(); }} style={styles.menuItem}><Text style={styles.menuText}>Змінити нікнейм</Text></Pressable>
+          {s.avatarUrl ? (
+            <Pressable disabled={s.avatarUploading} onPress={() => { void s.removeAvatarPhoto(); }} style={[styles.menuItem, { borderBottomWidth: 0 }]}><Text style={[styles.menuText, { color: palette.logout }]}>Видалити фото</Text></Pressable>
+          ) : null}
+          {s.avatarUploading ? <Text style={styles.avatarStatus}>Зберігаємо фото…</Text> : null}
+          {s.avatarError ? <Text accessibilityRole="alert" style={styles.fieldError}>{s.avatarError}</Text> : null}
         </View>
         <View style={{ paddingHorizontal: 20, paddingTop: 10, paddingBottom: 24 }}>
           <Pressable onPress={s.closeAvatarMenu} style={styles.secondaryBtn}><Text style={styles.secondaryText}>Скасувати</Text></Pressable>
@@ -400,6 +403,21 @@ export function PersonalDataSheet() {
           <Pressable onPress={s.closePersonalData} style={styles.closeBtn}><Text style={styles.closeX}>✕</Text></Pressable>
         </View>
         <View style={styles.personalContent}>
+          <View style={styles.personalAvatarRow}>
+            <View style={styles.personalAvatar}>
+              {s.avatarUrl
+                ? <Image source={{ uri: s.avatarUrl }} resizeMode="cover" style={styles.personalAvatarImage} />
+                : <Text style={styles.personalAvatarInitials}>{s.userInitials}</Text>}
+            </View>
+            <View style={styles.personalAvatarText}>
+              <Text style={styles.fieldLabel}>Фото профілю</Text>
+              <Text style={styles.fieldHint}>Квадратне фото до 5 МБ.</Text>
+            </View>
+            <Pressable disabled={s.avatarUploading} onPress={() => { void s.changeAvatarPhoto('library'); }} style={styles.personalPhotoButton}>
+              <Text style={styles.personalPhotoButtonText}>{s.avatarUploading ? '…' : 'Змінити'}</Text>
+            </Pressable>
+          </View>
+          {s.avatarError ? <Text accessibilityRole="alert" style={[styles.fieldError, { marginTop: -10, marginBottom: 12 }]}>{s.avatarError}</Text> : null}
           <Text style={styles.fieldLabel}>Нікнейм</Text>
           <TextInput
             value={nickname}
@@ -585,6 +603,7 @@ const styles = StyleSheet.create({
   secondaryText: { color: palette.textMuted, fontSize: 15 },
   menuItem: { paddingVertical: 14, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: palette.chip },
   menuText: { color: palette.text, fontSize: 15 },
+  avatarStatus: { color: palette.textMuted, fontSize: 12, marginTop: 10 },
   dialog: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 20, paddingVertical: 24, paddingHorizontal: 20, width: '100%', maxWidth: 300, alignItems: 'center' },
   dialogTitle: { fontSize: 17, fontWeight: '700', color: palette.text, marginBottom: 20 },
   dialogCancel: { flex: 1, padding: 13, borderRadius: 12, backgroundColor: palette.chip, alignItems: 'center' },
@@ -633,6 +652,13 @@ const styles = StyleSheet.create({
   infoSheet: { maxHeight: '84%' },
   personalSheet: { paddingBottom: 8 },
   personalContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 18 },
+  personalAvatarRow: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 18, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: palette.borderFaint },
+  personalAvatar: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.borderStrong },
+  personalAvatarImage: { width: '100%', height: '100%' },
+  personalAvatarInitials: { color: palette.text, fontSize: 18, fontWeight: '700' },
+  personalAvatarText: { flex: 1, minWidth: 0 },
+  personalPhotoButton: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 11, borderRadius: 11, backgroundColor: withAlpha(palette.accent, 0.08), borderWidth: 1, borderColor: withAlpha(palette.accent, 0.28) },
+  personalPhotoButtonText: { color: palette.accent, fontSize: 11.5, fontWeight: '700' },
   fieldLabel: { color: palette.textSecondary, fontSize: 12.5, fontWeight: '700', marginBottom: 8 },
   personalInput: { minHeight: 52, color: palette.text, fontSize: 16, paddingHorizontal: 14, borderRadius: 14, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.borderStrong },
   personalInputError: { borderColor: palette.accent },

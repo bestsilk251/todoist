@@ -23,6 +23,7 @@ const completedTask = {
 
 function mockTaskDetail(completed = true) {
   const toggleComplete = jest.fn();
+  const updateTask = jest.fn();
   (useV5 as jest.Mock).mockReturnValue({
     taskDetailId: completedTask.id,
     tasks: [{ ...completedTask, completed }],
@@ -31,15 +32,15 @@ function mockTaskDetail(completed = true) {
     closeTaskDetail: jest.fn(),
     openTaskTimePicker: jest.fn(),
     openTaskEndTimePicker: jest.fn(),
-    updateTask: jest.fn(),
+    updateTask,
     openShareSheet: jest.fn(),
   });
-  return toggleComplete;
+  return { toggleComplete, updateTask };
 }
 
 describe('TaskDetail completed task actions', () => {
   it('allows a completed calendar task to be reactivated', () => {
-    const toggleComplete = mockTaskDetail();
+    const { toggleComplete } = mockTaskDetail();
     const screen = render(<TaskDetail />);
 
     expect(screen.getByText('Задачу виконано')).toBeTruthy();
@@ -54,5 +55,16 @@ describe('TaskDetail completed task actions', () => {
     const screen = render(<TaskDetail />);
 
     expect(screen.queryByLabelText('Активувати задачу')).toBeNull();
+  });
+
+  it('changes the task date from the existing calendar picker', () => {
+    const { updateTask } = mockTaskDetail(false);
+    const screen = render(<TaskDetail />);
+
+    fireEvent.press(screen.getByLabelText('Змінити дату задачі'));
+    fireEvent.press(screen.getByText('Завтра'));
+    fireEvent.press(screen.getByText('Обрати день'));
+
+    expect(updateTask).toHaveBeenCalledWith(completedTask.id, { dueInDays: 1 });
   });
 });

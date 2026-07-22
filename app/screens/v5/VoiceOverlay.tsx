@@ -120,7 +120,6 @@ export default function VoiceOverlay() {
           </View>
           <View style={{ alignItems: 'center' }}>
             <Text style={styles.listening}>{s.isPaused ? 'Запис призупинено' : 'Говоріть, я слухаю'}</Text>
-            <Text style={styles.silenceHint}>Після 5 секунд тиші відкриється підтвердження</Text>
           </View>
           <View style={styles.controls}>
             <Pressable onPress={s.cancelVoice} style={styles.secondaryBtn}><Text style={styles.secondaryText}>Скасувати</Text></Pressable>
@@ -148,7 +147,6 @@ const styles = StyleSheet.create({
   orbWrap: { width: 120, height: 120, alignItems: 'center', justifyContent: 'center' },
   orb: { width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center' },
   listening: { fontSize: 16, color: palette.text, fontWeight: '500' },
-  silenceHint: { fontSize: 12, color: palette.textFaint, marginTop: 7, maxWidth: 280, textAlign: 'center' },
   controls: { flexDirection: 'row', gap: 14, marginTop: 8, alignItems: 'center' },
   secondaryBtn: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 14, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
   secondaryText: { color: palette.textMuted, fontSize: 14 },

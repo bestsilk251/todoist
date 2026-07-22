@@ -47,9 +47,24 @@ export default function PreviewSheet() {
         </Pressable>
         <View style={styles.sheet}>
           <View style={styles.head}>
-            <Text style={styles.title}>Перевірте задачі</Text>
-            <Text style={styles.subtitle}>Ми розпізнали декілька задач. Перевірте інформацію перед збереженням.</Text>
+            <Text style={styles.title}>{s.previewTasks.length ? 'Перевірте задачі' : 'Перевірте команду'}</Text>
+            <Text style={styles.subtitle}>Перевірте розпізнані дані перед застосуванням змін.</Text>
           </View>
+
+          {s.previewCommand ? (
+            <View style={[styles.commandBanner, s.previewCommand.taskIds.length === 0 && styles.commandBannerEmpty]}>
+              <View style={styles.commandIcon}><Text style={styles.commandIconText}>{s.previewCommand.kind === 'shift' ? '↦' : '↶'}</Text></View>
+              <View style={styles.commandBody}>
+                <Text style={styles.commandEyebrow}>{s.previewCommand.kind === 'shift' ? 'Перенесення розкладу' : 'Звільнення часу'}</Text>
+                <Text style={styles.commandSummary}>{s.previewCommand.summary}</Text>
+                <Text style={styles.commandHint}>
+                  {s.previewCommand.taskIds.length
+                    ? 'Команда виконається лише після підтвердження.'
+                    : 'У цьому проміжку немає активних задач — інші задачі не зміняться.'}
+                </Text>
+              </View>
+            </View>
+          ) : null}
 
           {s.previewError ? (
             <View accessibilityRole="alert" style={styles.errorBanner}>
@@ -120,7 +135,7 @@ export default function PreviewSheet() {
                     <Text numberOfLines={1} style={[styles.categoryPillText, { color: withAlpha(cat, 0.95) }]}>{p.category}</Text>
                   </Pressable>
                   {p.important ? (
-                    <Pressable onPress={() => s.togglePreviewImportant(p.id)} style={styles.importantPill}><Text style={styles.importantText}>Важливо</Text></Pressable>
+                    <Pressable onPress={() => s.togglePreviewImportant(p.id)} style={styles.importantPill}><Text style={styles.importantText}>{p.priority === 'urgent' ? 'Терміново' : p.priority === 'high' ? 'Високий' : 'Важливо · середній'}</Text></Pressable>
                   ) : null}
                 </View>
 
@@ -219,7 +234,7 @@ export default function PreviewSheet() {
 
           <View style={styles.footer}>
             <Pressable onPress={s.cancelPreview} style={styles.cancelBtn}><Text style={styles.cancelText}>Скасувати</Text></Pressable>
-            <Pressable onPress={s.confirmSave} style={styles.saveBtn}><Text style={styles.saveText}>Зберегти всі задачі</Text></Pressable>
+            <Pressable onPress={s.confirmSave} style={styles.saveBtn}><Text style={styles.saveText}>{s.previewCommand ? 'Застосувати' : 'Зберегти всі задачі'}</Text></Pressable>
           </View>
         </View>
       </View>
@@ -244,6 +259,14 @@ const styles = StyleSheet.create({
   head: { paddingTop: 22, paddingHorizontal: 20, paddingBottom: 10 },
   title: { fontSize: 19, fontWeight: '700', color: palette.text },
   subtitle: { fontSize: 13, color: palette.textMuted, marginTop: 4, lineHeight: 18 },
+  commandBanner: { marginHorizontal: 20, marginBottom: 8, padding: 12, flexDirection: 'row', gap: 10, borderRadius: 13, backgroundColor: withAlpha(palette.badgeGreen, 0.08), borderWidth: 1, borderColor: withAlpha(palette.badgeGreen, 0.28) },
+  commandBannerEmpty: { backgroundColor: palette.surface, borderColor: palette.border },
+  commandIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.border },
+  commandIconText: { color: palette.badgeGreen, fontSize: 20, fontWeight: '700' },
+  commandBody: { flex: 1, minWidth: 0 },
+  commandEyebrow: { color: palette.badgeGreen, fontSize: 10.5, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.45 },
+  commandSummary: { color: palette.text, fontSize: 12.5, lineHeight: 17, fontWeight: '700', marginTop: 2 },
+  commandHint: { color: palette.textMuted, fontSize: 10.5, lineHeight: 15, marginTop: 3 },
   list: { paddingHorizontal: 20, paddingVertical: 6 },
   errorBanner: { marginHorizontal: 20, marginBottom: 4, padding: 12, borderRadius: 12, backgroundColor: withAlpha(palette.accent, 0.1), borderWidth: 1, borderColor: withAlpha(palette.accent, 0.38) },
   errorTitle: { color: palette.accent, fontSize: 12.5, fontWeight: '700' },

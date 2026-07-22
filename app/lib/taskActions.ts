@@ -8,9 +8,15 @@ import type { Task } from '../types';
  */
 
 export async function setTaskStatus(id: string, status: Task['status']): Promise<void> {
+  const now = new Date().toISOString();
   const { error } = await getSupabaseClient()
     .from('tasks')
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({
+      status,
+      completed_at: status === 'done' ? now : null,
+      cancelled_at: status === 'cancelled' ? now : null,
+      updated_at: now,
+    })
     .eq('id', id);
   if (error) throw error;
 }

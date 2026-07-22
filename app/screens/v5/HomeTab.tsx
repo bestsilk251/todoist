@@ -3,14 +3,15 @@ import React from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { palette, withAlpha, categoryColors } from '../../theme';
-import { formatDateLabel, dayPhrase, isTaskCurrentOrUpcoming } from '../../lib/v5data';
-import type { V5Task } from '../../lib/v5data';
+import { formatDateLabel, dayPhrase, getNearestTasks, isTaskCurrentOrUpcoming } from '../../lib/v5data';
 import { useV5 } from './store';
 import { ProgressBar } from './ui';
 import NearestTaskCard from './NearestTaskCard';
 import {
   ProfileIcon, MicDetailedIcon, PlusIcon, BellIcon, FlagIcon, ClockIcon,
 } from '../../components/icons';
+import { findWorkingHoursFreeWindows, minutesToClock } from '../../lib/calendarMath';
+import { isoFromOffset } from '../../lib/tasksRepo';
 
 export default function HomeTab() {
   const s = useV5();
@@ -21,20 +22,14 @@ export default function HomeTab() {
 
   const catColor = (name: string) => cats[name] || categoryColors[name] || palette.textFaint;
 
-  const byDate = (a: V5Task, b: V5Task) =>
-    (a.dueInDays! - b.dueInDays!) || (a.time || '99:99').localeCompare(b.time || '99:99');
-
   const highPriority = s.tasks
-    .filter((t) => !t.completed && !t.cancelled && t.priority === 'high' && isTaskCurrentOrUpcoming(t, today))
-    .sort((a, b) => a.dueInDays! - b.dueInDays!)[0];
+    .filter((t) => !t.completed && !t.cancelled && (t.priority === 'urgent' || t.priority === 'high') && isTaskCurrentOrUpcoming(t, today))
+    .sort((a, b) => (a.priority === 'urgent' ? -1 : 0) - (b.priority === 'urgent' ? -1 : 0) || a.dueInDays! - b.dueInDays!)[0];
   const priorityReminder = highPriority
     ? `Пріоритетна задача «${highPriority.title}» — ${dayPhrase(highPriority.dueInDays!)}`
     : null;
 
-  let nearest = s.tasks.filter((t) => !t.completed && !t.cancelled && isTaskCurrentOrUpcoming(t, today)).sort(byDate).slice(0, 3);
-  if (highPriority && !nearest.some((t) => t.id === highPriority.id)) {
-    nearest = [...nearest.slice(0, 2), highPriority].sort(byDate);
-  }
+  const nearest = getNearestTasks(s.tasks, today, 3);
 
   const soon = s.tasks.find((t) => {
     if (t.completed || t.cancelled || t.dueInDays !== 0 || !t.time) return false;
@@ -56,6 +51,16 @@ export default function HomeTab() {
   const completed = weekTasks.filter((task) => task.completed).length;
   const total = weekTasks.length;
   const focused = s.quickFocused || !!s.quickText;
+  const todayTimedTasks = s.tasks.filter((task) => task.dueInDays === 0 && task.time && !task.cancelled);
+  const todayFreeWindow = s.freeWindowsEnabled
+    ? findWorkingHoursFreeWindows(todayTimedTasks, today.getDay())
+      .map((window) => ({ ...window, startMinutes: Math.max(window.startMinutes, Math.ceil(nowMinutes / 15) * 15) }))
+      .find((window) => window.endMinutes - window.startMinutes >= 30) ?? null
+    : null;
+  const freeWindowDuration = todayFreeWindow ? todayFreeWindow.endMinutes - todayFreeWindow.startMinutes : 0;
+  const freeWindowDurationLabel = freeWindowDuration >= 60
+    ? `${Math.floor(freeWindowDuration / 60)} год${freeWindowDuration % 60 ? ` ${freeWindowDuration % 60} хв` : ''}`
+    : `${freeWindowDuration} хв`;
 
   return (
     <View style={StyleSheet.absoluteFill}>
@@ -77,10 +82,10 @@ export default function HomeTab() {
         ) : null}
 
         {priorityReminder ? (
-          <View style={styles.reminder}>
+          <Pressable onPress={() => highPriority && s.openTaskInCalendar(highPriority.id)} style={styles.reminder}>
             <FlagIcon size={16} color={palette.accent} />
             <Text style={styles.reminderText}>{priorityReminder}</Text>
-          </View>
+          </Pressable>
         ) : null}
 
         <LinearGradient
@@ -118,15 +123,15 @@ export default function HomeTab() {
           <View style={styles.nearestWrap}>
             {nearest.map((task) => <NearestTaskCard key={task.id} task={task} categoryColor={catColor(task.category)} />)}
           </View>
-        ) : (
+        ) : todayFreeWindow ? (
           <View style={styles.freeWindow}>
             <View style={styles.freeIcon}><ClockIcon size={17} color={palette.accent} /></View>
-            <Text style={styles.freeText}>Знайдено вільне вікно 15:30–17:00. Запланувати задачу?</Text>
-            <Pressable onPress={() => s.scheduleFreeWindow()} style={styles.freeBtn}>
+            <Text style={styles.freeText}>Вільне вікно {minutesToClock(todayFreeWindow.startMinutes)}–{minutesToClock(todayFreeWindow.endMinutes)} · {freeWindowDurationLabel}</Text>
+            <Pressable onPress={() => s.scheduleFreeWindow(isoFromOffset(0), minutesToClock(todayFreeWindow.startMinutes), freeWindowDurationLabel)} style={styles.freeBtn}>
               <Text style={styles.freeBtnText}>Запланувати</Text>
             </Pressable>
           </View>
-        )}
+        ) : null}
       </ScrollView>
     </View>
   );

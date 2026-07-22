@@ -1,4 +1,4 @@
-import { clockToMinutes, durationBetweenClocks, extractScheduleFromText, findBoundedFreeWindow, findScheduleConflict, getCompactTimelineRange, getConflictingItemIndexes, getNonHourlyBoundaries, getOccupiedMinutes, minutesToClock, snapTaskStartMinutes } from '../calendarMath';
+import { clockToMinutes, durationBetweenClocks, extractScheduleFromText, findBoundedFreeWindow, findScheduleConflict, findWorkingHoursFreeWindows, getCompactTimelineRange, getConflictingItemIndexes, getNonHourlyBoundaries, getOccupiedMinutes, minutesToClock, snapTaskStartMinutes } from '../calendarMath';
 
 describe('calendarMath', () => {
   it('preserves minute precision and renders the end of day as 00:00', () => {
@@ -34,6 +34,22 @@ describe('calendarMath', () => {
       { time: '09:00', durationMinutes: null },
       { time: '13:00', durationMinutes: 60 },
     ], 2)).toBeNull();
+  });
+
+  it('finds complete free intervals between 09:00 and 19:00 on weekdays', () => {
+    expect(findWorkingHoursFreeWindows([
+      { time: '09:00', durationMinutes: 120 },
+      { time: '15:00', durationMinutes: 60 },
+      { time: '18:00', durationMinutes: 60 },
+    ], 4)).toEqual([
+      { startMinutes: 11 * 60, endMinutes: 15 * 60 },
+      { startMinutes: 16 * 60, endMinutes: 18 * 60 },
+    ]);
+  });
+
+  it('keeps weekends and completely empty weekdays free of suggestion cards', () => {
+    expect(findWorkingHoursFreeWindows([], 4)).toEqual([]);
+    expect(findWorkingHoursFreeWindows([{ time: '11:00', durationMinutes: 60 }], 6)).toEqual([]);
   });
 
   it('folds unused night hours while keeping context around tasks', () => {

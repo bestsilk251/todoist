@@ -53,7 +53,7 @@ export default function NearestTaskCard({ task, categoryColor }: { task: V5Task;
       </View>
       <Animated.View style={{ transform: [{ translateX }] }} {...pan.panHandlers}>
         <Pressable
-          onPress={() => s.openTaskDetail(task.id)}
+          onPress={() => s.openTaskInCalendar(task.id)}
           accessibilityRole="button"
           accessibilityHint="Свайпніть праворуч, щоб виконати, або ліворуч, щоб скасувати"
           style={styles.card}

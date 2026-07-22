@@ -4,14 +4,22 @@ import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { palette, priorityColor, priorityLabel, withAlpha } from '../../theme';
 import { monthsGen, weekdaysFull, descByCategory } from '../../lib/v5data';
 import { DEFAULT_TIMED_TASK_DURATION_MINUTES } from '../../lib/calendarMath';
+import { isoFromOffset, isoOf, offsetFromToday } from '../../lib/tasksRepo';
 import { useV5 } from './store';
-import { ChevronLeftIcon, DotsVerticalIcon, CalendarSlimIcon, FunnelIcon, FlagIcon, PersonPlusIcon, ShareArrowIcon, CaretRight, CheckCircleIcon } from '../../components/icons';
+import { ChevronLeftIcon, CalendarSlimIcon, FunnelIcon, FlagIcon, PersonPlusIcon, ShareArrowIcon, CaretRight, CheckCircleIcon } from '../../components/icons';
+import PreviewDatePicker from './PreviewDatePicker';
 
 export default function TaskDetail() {
   const s = useV5();
   const t = s.tasks.find((x) => x.id === s.taskDetailId);
   const [editingSection, setEditingSection] = useState<'category' | 'priority' | null>(null);
-  useEffect(() => setEditingSection(null), [s.taskDetailId]);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [dateError, setDateError] = useState<string | null>(null);
+  useEffect(() => {
+    setEditingSection(null);
+    setDatePickerOpen(false);
+    setDateError(null);
+  }, [s.taskDetailId]);
   if (!t) return null;
 
   const today = new Date();
@@ -43,7 +51,6 @@ export default function TaskDetail() {
     <View style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={s.closeTaskDetail} style={styles.hBtn}><ChevronLeftIcon size={17} color={palette.textSecondary} /></Pressable>
-        <View style={styles.hBtn}><DotsVerticalIcon size={17} color={palette.textSecondary} /></View>
       </View>
 
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
@@ -79,7 +86,19 @@ export default function TaskDetail() {
           <View style={[styles.infoRow, styles.infoDivider]}>
             <CalendarSlimIcon size={17} color={palette.accent} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.infoMain}>{fullDateLabel}</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Змінити дату задачі"
+                onPress={() => { setDateError(null); setDatePickerOpen(true); }}
+                style={styles.dateEditorButton}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.dateEditorLabel}>Дата</Text>
+                  <Text style={styles.infoMain}>{fullDateLabel}</Text>
+                </View>
+                <CaretRight size={7} color={palette.textFaint} />
+              </Pressable>
+              {dateError ? <Text accessibilityRole="alert" style={styles.dateError}>{dateError}</Text> : null}
               <View style={styles.timeEditorRow}>
                 <Pressable onPress={() => s.openTaskTimePicker(t.id)} style={styles.timeEditorButton}>
                   <Text style={styles.timeEditorLabel}>Початок</Text>
@@ -146,6 +165,24 @@ export default function TaskDetail() {
           <View style={styles.shareIcon}><ShareArrowIcon size={16} color={palette.white} /></View>
         </Pressable>
       </ScrollView>
+      <PreviewDatePicker
+        visible={datePickerOpen}
+        value={t.dueInDays == null ? null : isoFromOffset(t.dueInDays)}
+        onClose={() => setDatePickerOpen(false)}
+        onSelect={(iso) => {
+          const dueInDays = offsetFromToday(iso);
+          if (dueInDays === 0 && t.time) {
+            const [hours, minutes] = t.time.split(':').map(Number);
+            const now = new Date();
+            if (iso === isoOf(now) && hours * 60 + minutes < now.getHours() * 60 + now.getMinutes()) {
+              setDateError('Цей час уже минув. Оберіть майбутній день або змініть час задачі.');
+              return;
+            }
+          }
+          setDateError(null);
+          s.updateTask(t.id, { dueInDays });
+        }}
+      />
     </View>
   );
 }
@@ -174,6 +211,9 @@ const styles = StyleSheet.create({
   infoDivider: { borderBottomWidth: 1, borderBottomColor: palette.border },
   infoLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   infoMain: { fontSize: 14, color: palette.text, fontWeight: '500' },
+  dateEditorButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  dateEditorLabel: { color: palette.textFaint, fontSize: 10.5, marginBottom: 2 },
+  dateError: { color: palette.accent, fontSize: 11, lineHeight: 15, marginTop: 4 },
   infoSub: { fontSize: 12.5, color: palette.textMuted, marginTop: 2 },
   infoLabel: { fontSize: 14, color: palette.text },
   timeEditorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 9 },

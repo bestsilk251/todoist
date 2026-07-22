@@ -216,6 +216,52 @@ export function findBoundedFreeWindow(
   return null;
 }
 
+/**
+ * Returns every meaningful free interval during inclusive working hours
+ * (09:00 through the end of the 18:00 hour). Empty days stay visually quiet,
+ * matching the product decision not to suggest an entirely blank schedule.
+ */
+export function findWorkingHoursFreeWindows(
+  items: TimedCalendarItem[],
+  weekday: number,
+  windowStartMinutes = 9 * 60,
+  windowEndMinutes = 19 * 60,
+  minimumMinutes = 30,
+): FreeWindow[] {
+  if (weekday === 0 || weekday === 6 || windowEndMinutes <= windowStartMinutes) return [];
+
+  const occupied = scheduledIntervals(items)
+    .map((item) => ({
+      startMinutes: Math.max(windowStartMinutes, item.startMinutes),
+      endMinutes: Math.min(windowEndMinutes, item.endMinutes),
+    }))
+    .filter((item) => item.endMinutes > item.startMinutes);
+  if (occupied.length === 0) return [];
+
+  const merged: FreeWindow[] = [];
+  occupied.forEach((item) => {
+    const previous = merged.at(-1);
+    if (previous && item.startMinutes <= previous.endMinutes) {
+      previous.endMinutes = Math.max(previous.endMinutes, item.endMinutes);
+    } else {
+      merged.push({ ...item });
+    }
+  });
+
+  const windows: FreeWindow[] = [];
+  let cursor = windowStartMinutes;
+  merged.forEach((item) => {
+    if (item.startMinutes - cursor >= minimumMinutes) {
+      windows.push({ startMinutes: cursor, endMinutes: item.startMinutes });
+    }
+    cursor = Math.max(cursor, item.endMinutes);
+  });
+  if (windowEndMinutes - cursor >= minimumMinutes) {
+    windows.push({ startMinutes: cursor, endMinutes: windowEndMinutes });
+  }
+  return windows;
+}
+
 /** Keeps one hour of context around scheduled tasks and folds empty night time. */
 export function getCompactTimelineRange(
   items: TimedCalendarItem[],

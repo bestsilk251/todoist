@@ -2,7 +2,7 @@
 import React, { useRef } from 'react';
 import { View, Text, Pressable, Animated, PanResponder, StyleSheet } from 'react-native';
 import { palette, priorityColor, withAlpha } from '../../theme';
-import type { V5Task } from '../../lib/v5data';
+import { formatTaskDateFromOffset, type V5Task } from '../../lib/v5data';
 import { useV5 } from './store';
 import { CategoryTag } from './ui';
 import { clockToMinutes, minutesToClock } from '../../lib/calendarMath';
@@ -53,6 +53,9 @@ export default function TaskCard({ task }: { task: V5Task }) {
   const timeLabel = task.time && task.durationMinutes
     ? `${task.time}–${minutesToClock(clockToMinutes(task.time) + task.durationMinutes)}`
     : task.time;
+  const dueDateLabel = task.dueInDays != null && (task.dueInDays > 1 || task.overdue)
+    ? formatTaskDateFromOffset(task.dueInDays)
+    : null;
 
   return (
     <View style={styles.wrap}>
@@ -76,6 +79,7 @@ export default function TaskCard({ task }: { task: V5Task }) {
               {timeLabel ? (
                 <Text style={[styles.timeChip, task.overdue ? styles.timeChipOverdue : styles.timeChipNormal]}>{timeLabel}</Text>
               ) : null}
+              {dueDateLabel ? <Text style={styles.dateChip}>{dueDateLabel}</Text> : null}
               <CategoryTag name={task.category} color={catColor} />
               {task.repeat ? <Text style={styles.metaPill}>Повторюється</Text> : null}
               {task.hasSubtasks ? <Text style={styles.metaPill}>{task.subtaskCount} підзадачі</Text> : null}
@@ -111,5 +115,6 @@ const styles = StyleSheet.create({
   timeChipNormal: { color: palette.textMuted, backgroundColor: palette.chip },
   timeChipOverdue: { color: palette.accent, backgroundColor: withAlpha(palette.accent, 0.12) },
   metaPill: { fontSize: 11, color: palette.textMuted, backgroundColor: palette.chip, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, overflow: 'hidden' },
+  dateChip: { fontSize: 11, color: palette.textSecondary, backgroundColor: palette.chip, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, overflow: 'hidden' },
   overdue: { fontSize: 11, color: palette.accent, fontWeight: '600' },
 });

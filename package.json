@@ -25,6 +25,7 @@
     "@supabase/supabase-js": "^2.47.10",
     "expo": "~52.0.27",
     "expo-asset": "~11.0.5",
+    "expo-image-picker": "~16.0.6",
     "expo-linear-gradient": "~14.0.2",
     "expo-sqlite": "~15.1.4",
     "expo-status-bar": "~2.0.1",

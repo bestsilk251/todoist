@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AnalyticsDateRange, AnalyticsResponse } from '../../../lib/analyticsTypes';
-import { clearAnalyticsCache, fetchAnalytics } from '../../../lib/analyticsRepo';
+import { clearAnalyticsCache, fetchAnalytics, readCachedAnalytics } from '../../../lib/analyticsRepo';
 import { getSupabaseClient } from '../../../lib/supabase';
 
 export function useAnalytics(range: AnalyticsDateRange, timezone: string) {
@@ -16,11 +16,25 @@ export function useAnalytics(range: AnalyticsDateRange, timezone: string) {
     forceNext.current = false;
     setLoading(true);
     setError(null);
-    if (!force) setData(null);
-    fetchAnalytics(range, timezone, force)
-      .then((result) => { if (!cancelled) setData(result); })
-      .catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Невідома помилка.'); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    if (force) setData(null);
+    void (async () => {
+      let cached: AnalyticsResponse | null = null;
+      if (!force) {
+        cached = await readCachedAnalytics(range, timezone);
+        if (!cancelled && cached) {
+          setData(cached);
+          setLoading(false);
+        }
+      }
+      try {
+        const result = await fetchAnalytics(range, timezone, force);
+        if (!cancelled) setData(result);
+      } catch (reason: unknown) {
+        if (!cancelled && !cached) setError(reason instanceof Error ? reason.message : 'Невідома помилка.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
     return () => { cancelled = true; };
   }, [range.from, range.to, timezone, requestVersion]);
 

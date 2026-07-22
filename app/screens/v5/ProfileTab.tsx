@@ -1,6 +1,6 @@
 /** Profile tab: avatar, stats, level card, badges, grouped settings, logout. */
 import React from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Image, View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { palette, withAlpha } from '../../theme';
 import { useV5 } from './store';
@@ -54,7 +54,11 @@ export default function ProfileTab() {
 
       <View style={styles.avatarBlock}>
         <View style={styles.avatarWrap}>
-          <View style={styles.avatar}><Text style={styles.avatarText}>{s.userInitials}</Text></View>
+          <Pressable onPress={s.openAvatarMenu} style={styles.avatar}>
+            {s.avatarUrl
+              ? <Image source={{ uri: s.avatarUrl }} resizeMode="cover" style={styles.avatarImage} />
+              : <Text style={styles.avatarText}>{s.userInitials}</Text>}
+          </Pressable>
           <Pressable onPress={s.openAvatarMenu} style={styles.avatarEdit}><PencilIcon size={13} color={palette.white} /></Pressable>
         </View>
         <Text style={styles.name}>{s.userFullName}</Text>
@@ -132,6 +136,7 @@ export default function ProfileTab() {
       <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>Налаштування</Text>
       <View style={styles.card}>
         <SettingRow label="Сповіщення" value={s.notificationsEnabled ? 'Увімкнено' : 'Вимкнено'} onPress={s.toggleNotifications} />
+        <SettingRow label="Вільні вікна" value={s.freeWindowsEnabled ? 'Увімкнено' : 'Вимкнено'} onPress={s.toggleFreeWindows} />
         <SettingRow label="Оформлення" value={mode === 'light' ? 'Світла' : 'Темна'} onPress={s.openAppearance} last />
       </View>
 
@@ -162,6 +167,7 @@ const styles = StyleSheet.create({
   avatarBlock: { alignItems: 'center', gap: 10, marginBottom: 24 },
   avatarWrap: { width: 80, height: 80 },
   avatar: { width: 80, height: 80, borderRadius: 40, backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.chipBorder, alignItems: 'center', justifyContent: 'center' },
+  avatarImage: { width: '100%', height: '100%', borderRadius: 40 },
   avatarText: { fontSize: 26, fontWeight: '600', color: palette.text },
   avatarEdit: { position: 'absolute', right: -2, bottom: -2, width: 28, height: 28, borderRadius: 14, backgroundColor: palette.accent, borderWidth: 2, borderColor: palette.bg, alignItems: 'center', justifyContent: 'center' },
   name: { fontSize: 17, fontWeight: '600', color: palette.text },

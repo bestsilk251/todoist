@@ -21,6 +21,7 @@ function profileFromSession(user: { id: string; email?: string; user_metadata?: 
     fullName,
     email,
     initials: (initials || email.slice(0, 2)).toUpperCase(),
+    avatarUrl: typeof user?.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : null,
     usageGuidePending: user?.user_metadata?.[USAGE_GUIDE_PENDING_METADATA_KEY] === true,
   };
 }
