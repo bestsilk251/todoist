@@ -1,18 +1,25 @@
 /** Calendar tab: day timeline (2px/min, now-line, free-window), week load
  * summary and month grid — ported from the v5 mock. */
-import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, PanResponder, Pressable, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
 import { palette, priorityColor, withAlpha } from '../../theme';
 import { weekShort, monthsGen, dayPhrase, pluralTasks } from '../../lib/v5data';
 import type { V5Task } from '../../lib/v5data';
 import { useV5 } from './store';
 import { CategoryTag, ScreenHeader, SegmentedControl } from './ui';
-import { CalendarIcon, ClockIcon, FlagIcon } from '../../components/icons';
-import { DEFAULT_TIMED_TASK_DURATION_MINUTES, findBoundedFreeWindow, findScheduleConflict, getCompactTimelineRange, getNonHourlyBoundaries, getOccupiedMinutes, clockToMinutes, minutesToClock } from '../../lib/calendarMath';
+import { CalendarIcon, ClockIcon, FlagIcon, ChevronRightIcon } from '../../components/icons';
+import { DEFAULT_TIMED_TASK_DURATION_MINUTES, findBoundedFreeWindow, findScheduleConflict, getCompactTimelineRange, getConflictingItemIndexes, getNonHourlyBoundaries, getOccupiedMinutes, clockToMinutes, minutesToClock, snapTaskStartMinutes } from '../../lib/calendarMath';
 import { isoFromOffset } from '../../lib/tasksRepo';
 import { isTaskInListSection, isTaskOnCalendarDay } from '../../lib/taskSelectors';
 
 const PX_PER_MIN = 2;
+
+type DayCalendarEvent = V5Task & {
+  startMinutes: number;
+  endMinutes: number;
+  start: string;
+  end: string;
+};
 
 export default function CalendarTab() {
   const s = useV5();
@@ -118,7 +125,13 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
     .filter((task) => !task.time && !importantIds.has(task.id))
     .sort((a, b) => a.title.localeCompare(b.title, 'uk'));
   const preciseBoundaries = getNonHourlyBoundaries(dayEvents);
-  const scheduleConflict = findScheduleConflict(dayEvents.filter((event) => !event.completed && !event.cancelled));
+  const activeDayEvents = dayEvents.filter((event) => !event.completed && !event.cancelled);
+  const scheduleConflict = findScheduleConflict(activeDayEvents);
+  const allConflictIndexes = getConflictingItemIndexes(activeDayEvents);
+  const conflictTaskIds = scheduleConflict
+    ? allConflictIndexes.flatMap((index) => activeDayEvents[index]?.id ? [activeDayEvents[index].id] : [])
+    : [];
+  const hasAdditionalConflicts = scheduleConflict != null && allConflictIndexes.length > scheduleConflict.itemIndexes.length;
   const timelineRange = getCompactTimelineRange(dayEvents, expandedTimeline);
   const startMinutes = timelineRange?.startMinutes ?? 0;
   const endMinutes = timelineRange?.endMinutes ?? 0;
@@ -198,15 +211,29 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
       ) : null}
 
       {scheduleConflict ? (
-        <View accessible accessibilityRole="alert" style={styles.conflictCard}>
+        <Pressable
+          onPress={() => s.openConflictTasks(
+            conflictTaskIds,
+            hasAdditionalConflicts ? null : scheduleConflict.startMinutes,
+            hasAdditionalConflicts ? null : scheduleConflict.endMinutes,
+          )}
+          accessibilityRole="button"
+          accessibilityLabel={`Конфлікт часу: ${conflictTaskIds.length} задачі перетинаються`}
+          accessibilityHint="Відкриває список задач і дії для усунення конфлікту"
+          style={({ pressed }) => [styles.conflictCard, pressed && styles.conflictCardPressed]}
+        >
           <View style={styles.conflictIcon}><ClockIcon size={16} color={palette.accent} /></View>
           <View style={styles.conflictBody}>
             <Text style={styles.conflictTitle}>Конфлікт часу</Text>
             <Text style={styles.conflictText}>
-              {scheduleConflict.itemIndexes.length} {pluralTasks(scheduleConflict.itemIndexes.length)} перетинаються о {minutesToClock(scheduleConflict.startMinutes)}–{minutesToClock(scheduleConflict.endMinutes)}. Змініть час однієї з них.
+              {hasAdditionalConflicts
+                ? `Протягом дня ${conflictTaskIds.length} ${pluralTasks(conflictTaskIds.length)} мають накладання в розкладі.`
+                : `${conflictTaskIds.length} ${pluralTasks(conflictTaskIds.length)} перетинаються о ${minutesToClock(scheduleConflict.startMinutes)}–${minutesToClock(scheduleConflict.endMinutes)}.`}
             </Text>
+            <Text style={styles.conflictAction}>Переглянути задачі</Text>
           </View>
-        </View>
+          <ChevronRightIcon size={15} color={palette.accent} />
+        </Pressable>
       ) : null}
 
       {expandedTimeline ? (
@@ -220,6 +247,13 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
           <Text style={styles.foldedTimeRange}>00:00–{minutesToClock(startMinutes)} · Вільно {formatDuration(startMinutes)}</Text>
           <Text style={styles.foldedTimeLabel}>Розгорнути</Text>
         </Pressable>
+      ) : null}
+
+      {timelineRange && activeDayEvents.length > 0 ? (
+        <View style={styles.dragGuide}>
+          <ClockIcon size={13} color={palette.textFaint} />
+          <Text style={styles.dragGuideText}>Затисніть задачу та перетягніть · крок 15 хв</Text>
+        </View>
       ) : null}
 
       {!timelineRange ? (
@@ -267,26 +301,16 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
             </Pressable>
           ) : null}
 
-          {dayEvents.map((event) => {
-            const top = timeToY(event.startMinutes);
-            const minutes = event.endMinutes - event.startMinutes;
-            const height = Math.max(30, minutes * PX_PER_MIN);
-            const compact = minutes < 60;
-            const color = catColor(event.category);
-            const flag = event.priority === 'urgent' || event.priority === 'high';
-            return (
-              <Pressable
-                key={event.id}
-                onPress={() => s.openTaskDetail(event.id)}
-                style={[styles.eventCard, { top, height, borderLeftColor: color, paddingVertical: compact ? 6 : 9, paddingHorizontal: 12 }]}
-              >
-                <Text style={styles.eventTime}>{event.start} – {event.end}</Text>
-                <Text style={[styles.eventTitle, event.completed && styles.eventTitleDone]} numberOfLines={compact ? 1 : 2}>{event.title}</Text>
-                {!compact ? <View style={styles.eventCategory}><CategoryTag name={event.category} color={color} /></View> : null}
-                {flag ? <View style={styles.eventFlag}><FlagIcon size={14} color={palette.accent} filled={false} /></View> : null}
-              </Pressable>
-            );
-          })}
+          {dayEvents.map((event) => (
+            <DraggableCalendarEvent
+              key={event.id}
+              event={event}
+              color={catColor(event.category)}
+              timelineStartMinutes={startMinutes}
+              timelineEndMinutes={endMinutes}
+              timeToY={timeToY}
+            />
+          ))}
         </View>
       )}
 
@@ -318,6 +342,154 @@ function DayView({ offset, selectedDate }: { offset: number; selectedDate: Date 
         </View>
       </View>
     </View>
+  );
+}
+
+interface DraggableCalendarEventProps {
+  event: DayCalendarEvent;
+  color: string;
+  timelineStartMinutes: number;
+  timelineEndMinutes: number;
+  timeToY: (minutes: number) => number;
+}
+
+function DraggableCalendarEvent({
+  event,
+  color,
+  timelineStartMinutes,
+  timelineEndMinutes,
+  timeToY,
+}: DraggableCalendarEventProps) {
+  const s = useV5();
+  const durationMinutes = Math.max(30, event.endMinutes - event.startMinutes);
+  const draggable = !event.completed && !event.cancelled;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const longPressReady = useRef(false);
+  const gestureActive = useRef(false);
+  const suppressPress = useRef(false);
+  const previewStartRef = useRef(event.startMinutes);
+  const eventRef = useRef(event);
+  const rangeRef = useRef({ timelineStartMinutes, timelineEndMinutes, durationMinutes });
+  const [dragging, setDragging] = useState(false);
+  const [previewStart, setPreviewStart] = useState(event.startMinutes);
+
+  eventRef.current = event;
+  rangeRef.current = { timelineStartMinutes, timelineEndMinutes, durationMinutes };
+
+  useEffect(() => {
+    if (gestureActive.current) return;
+    previewStartRef.current = event.startMinutes;
+    setPreviewStart(event.startMinutes);
+    translateY.setValue(0);
+  }, [event.startMinutes, translateY]);
+
+  const finishDrag = (save: boolean) => {
+    const currentEvent = eventRef.current;
+    const nextStart = previewStartRef.current;
+    if (save && nextStart !== currentEvent.startMinutes) {
+      s.updateTask(currentEvent.id, { time: minutesToClock(nextStart) });
+    }
+    gestureActive.current = false;
+    longPressReady.current = false;
+    setDragging(false);
+    translateY.setValue(0);
+    if (!save || nextStart === currentEvent.startMinutes) {
+      previewStartRef.current = currentEvent.startMinutes;
+      setPreviewStart(currentEvent.startMinutes);
+    }
+  };
+
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_event, gesture) => (
+      longPressReady.current && Math.abs(gesture.dy) > 2
+    ),
+    onMoveShouldSetPanResponderCapture: (_event, gesture) => (
+      longPressReady.current && Math.abs(gesture.dy) > 2
+    ),
+    onPanResponderGrant: () => {
+      gestureActive.current = true;
+      suppressPress.current = true;
+      setDragging(true);
+    },
+    onPanResponderMove: (_event, gesture) => {
+      const currentEvent = eventRef.current;
+      const range = rangeRef.current;
+      const rawStart = currentEvent.startMinutes + gesture.dy / PX_PER_MIN;
+      let snappedStart = snapTaskStartMinutes(rawStart, range.durationMinutes, 15);
+      const visibleMin = Math.ceil(range.timelineStartMinutes / 15) * 15;
+      const visibleMax = Math.floor((range.timelineEndMinutes - range.durationMinutes) / 15) * 15;
+      if (visibleMax >= visibleMin) {
+        snappedStart = Math.max(visibleMin, Math.min(visibleMax, snappedStart));
+      }
+      previewStartRef.current = snappedStart;
+      setPreviewStart(snappedStart);
+      translateY.setValue((snappedStart - currentEvent.startMinutes) * PX_PER_MIN);
+    },
+    onPanResponderRelease: () => finishDrag(true),
+    onPanResponderTerminate: () => finishDrag(false),
+    onPanResponderTerminationRequest: () => false,
+  })).current;
+
+  const previewEnd = Math.min(24 * 60, previewStart + durationMinutes);
+
+  return (
+    <Animated.View
+      {...panResponder.panHandlers}
+      style={[
+        styles.eventCard,
+        {
+          top: timeToY(event.startMinutes),
+          height: durationMinutes * PX_PER_MIN,
+          borderLeftColor: color,
+          transform: [{ translateY }],
+        },
+        dragging && styles.eventCardDragging,
+      ]}
+    >
+      <Pressable
+        delayLongPress={450}
+        onPressIn={() => {
+          suppressPress.current = false;
+          longPressReady.current = false;
+        }}
+        onLongPress={() => {
+          if (!draggable) return;
+          longPressReady.current = true;
+          suppressPress.current = true;
+          setDragging(true);
+          try { Vibration.vibrate(20); } catch { /* no-op on web */ }
+        }}
+        onPressOut={() => {
+          if (gestureActive.current) return;
+          longPressReady.current = false;
+          if (dragging) {
+            setDragging(false);
+            translateY.setValue(0);
+          }
+        }}
+        onPress={() => {
+          if (!suppressPress.current) s.openTaskDetail(event.id);
+          suppressPress.current = false;
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={`${event.title}, ${minutesToClock(previewStart)}–${minutesToClock(previewEnd)}`}
+        accessibilityHint={draggable
+          ? 'Натисніть, щоб відкрити. Затисніть і перетягніть, щоб змінити час із кроком 15 хвилин.'
+          : 'Натисніть, щоб відкрити задачу.'}
+        style={styles.eventPressable}
+      >
+        <Text style={[styles.eventTime, dragging && styles.eventTimeDragging]}>
+          {minutesToClock(previewStart)}–{minutesToClock(previewEnd)}
+          {dragging ? ' · крок 15 хв' : ''}
+        </Text>
+        <Text numberOfLines={2} style={[styles.eventTitle, event.completed && styles.eventTitleDone]}>{event.title}</Text>
+        <View style={styles.eventCategory}><CategoryTag name={event.category} color={color} fontSize={9.5} /></View>
+        {(event.priority === 'urgent' || event.priority === 'high') ? (
+          <View style={styles.eventFlag}><FlagIcon size={13} color={priorityColor(event.priority)} filled /></View>
+        ) : null}
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -455,15 +627,19 @@ const styles = StyleSheet.create({
   importantMeta: { fontSize: 10.5, lineHeight: 14, color: palette.textFaint, marginTop: 2 },
   allDayCheckbox: { width: 18, height: 18, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
   conflictCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12, paddingVertical: 11, paddingHorizontal: 12, borderRadius: 13, backgroundColor: withAlpha(palette.accent, 0.07), borderWidth: 1, borderColor: withAlpha(palette.accent, 0.25) },
+  conflictCardPressed: { backgroundColor: withAlpha(palette.accent, 0.12), borderColor: withAlpha(palette.accent, 0.42) },
   conflictIcon: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(palette.accent, 0.1) },
   conflictBody: { flex: 1, minWidth: 0 },
   conflictTitle: { color: palette.accentPaleText, fontSize: 12.5, fontWeight: '700' },
   conflictText: { color: palette.textMuted, fontSize: 10.5, lineHeight: 15, marginTop: 2 },
+  conflictAction: { color: palette.accent, fontSize: 11, fontWeight: '700', marginTop: 5 },
   collapseTimelineButton: { alignSelf: 'center', minHeight: 38, justifyContent: 'center', paddingHorizontal: 14, marginBottom: 10, borderRadius: 11, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
   collapseTimelineText: { color: palette.textMuted, fontSize: 12, fontWeight: '600' },
   foldedTime: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginVertical: 6, paddingHorizontal: 12, borderRadius: 12, backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.borderFaint, borderStyle: 'dashed' },
   foldedTimeRange: { color: palette.textSecondary, fontSize: 12.5, fontWeight: '600' },
   foldedTimeLabel: { color: palette.accent, fontSize: 11, fontWeight: '600', textAlign: 'right' },
+  dragGuide: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 6 },
+  dragGuideText: { color: palette.textFaint, fontSize: 10.5 },
   emptyTimeline: { alignItems: 'center', paddingVertical: 24, paddingHorizontal: 18, borderRadius: 14, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, marginVertical: 8 },
   emptyTimelineTitle: { color: palette.text, fontSize: 14, fontWeight: '700', textAlign: 'center' },
   emptyTimelineText: { color: palette.textMuted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 5 },
@@ -475,8 +651,11 @@ const styles = StyleSheet.create({
   preciseLine: { position: 'absolute', left: 44, right: 0, height: 1, backgroundColor: palette.accent, opacity: 0.75 },
   preciseDot: { position: 'absolute', left: 40, width: 6, height: 6, borderRadius: 3, backgroundColor: palette.accent, opacity: 0.9 },
   preciseLabel: { position: 'absolute', left: 0, fontSize: 10.5, fontWeight: '600', color: palette.accent },
-  eventCard: { position: 'absolute', left: 62, right: 0, backgroundColor: palette.surface, borderRadius: 12, borderWidth: 1, borderColor: palette.border, borderLeftWidth: 3, overflow: 'hidden' },
+  eventCard: { position: 'absolute', left: 62, right: 0, backgroundColor: palette.surface, borderRadius: 12, borderWidth: 1, borderColor: palette.border, borderLeftWidth: 3, overflow: 'hidden', zIndex: 2 },
+  eventCardDragging: { zIndex: 20, elevation: 12, borderColor: withAlpha(palette.accent, 0.82), backgroundColor: palette.surfaceAlt, shadowColor: palette.accent, shadowOpacity: 0.28, shadowRadius: 14, shadowOffset: { width: 0, height: 6 } },
+  eventPressable: { flex: 1, minHeight: 44, paddingHorizontal: 12, paddingVertical: 9 },
   eventTime: { fontSize: 11, color: palette.textFaint },
+  eventTimeDragging: { color: palette.accent, fontWeight: '700' },
   eventTitle: { fontSize: 14, color: palette.text, fontWeight: '600', marginTop: 3, paddingRight: 72 },
   eventTitleDone: { color: palette.textFaint, textDecorationLine: 'line-through' },
   eventCategory: { position: 'absolute', top: 9, right: 32 },

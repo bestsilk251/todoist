@@ -2,19 +2,23 @@
  * and the compact floating add menu (text / voice). */
 import React from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { palette, withAlpha } from '../../theme';
+import { palette, priorityColor, priorityLabel, withAlpha } from '../../theme';
 import { compareTasksChronologically, formatDateLabel } from '../../lib/v5data';
 import type { V5Task } from '../../lib/v5data';
 import { useV5 } from './store';
 import { ProgressBar, CategoryTag, ScreenHeader } from './ui';
 import TaskCard from './TaskCard';
-import { ListIcon, SearchIcon, FunnelIcon, MicSimpleIcon, TextLinesIcon, PlusIcon } from '../../components/icons';
+import { ListIcon, SearchIcon, FunnelIcon, PaletteIcon, MicSimpleIcon, TextLinesIcon, PlusIcon } from '../../components/icons';
 import { matchesTaskSearch } from '../../lib/taskSearch';
 import { isTaskInListSection } from '../../lib/taskSelectors';
+import { matchesTaskFilters, taskFilterCount } from '../../lib/taskFilters';
 
 export default function ListTab() {
   const s = useV5();
-  const match = (task: V5Task) => matchesTaskSearch(task, s.listSearchQuery);
+  const filters = { priorities: s.listPriorityFilters, categories: s.listCategoryFilters };
+  const matchesFilters = (task: V5Task) => matchesTaskFilters(task, filters);
+  const match = (task: V5Task) => matchesTaskSearch(task, s.listSearchQuery) && matchesFilters(task);
+  const activeFilterCount = taskFilterCount(filters);
 
   const groupOf = (d: number) => (d === 0 ? 'today' : d === 1 ? 'tomorrow' : 'later');
   const labels: Record<string, string> = { today: 'Сьогодні', tomorrow: 'Завтра', later: 'Пізніше' };
@@ -40,9 +44,10 @@ export default function ListTab() {
   const cancelled = s.tasks.filter((t) => isTaskInListSection(t, 'cancelled') && match(t)).sort(compareTasksChronologically);
   const completedCount = completed.length;
   const cancelledCount = cancelled.length;
-  const activeCount = s.tasks.filter((t) => isTaskInListSection(t, 'active')).length;
-  const done = s.tasks.filter((t) => isTaskInListSection(t, 'completed')).length;
+  const activeCount = s.tasks.filter((t) => isTaskInListSection(t, 'active') && matchesFilters(t)).length;
+  const done = s.tasks.filter((t) => isTaskInListSection(t, 'completed') && matchesFilters(t)).length;
   const total = done + activeCount;
+  const visibleTaskCount = groups.reduce((sum, group) => sum + group.tasks.length, 0) + overdue.length + completed.length + cancelled.length;
 
   const menuOpen = s.listAddMenuOpen;
   const textMode = s.listAddMode === 'text';
@@ -59,10 +64,21 @@ export default function ListTab() {
         <ScreenHeader
           icon={<ListIcon size={24} color={palette.accent} />}
           title="Мої задачі"
-          actions={<>
-            <Pressable onPress={s.toggleListSearch} style={styles.iconBtn}><SearchIcon size={18} color={palette.textMuted} /></Pressable>
-            <Pressable onPress={s.openCategoryEditor} style={styles.iconBtn}><FunnelIcon size={18} color={palette.textMuted} /></Pressable>
-          </>}
+          actions={(
+            <View style={styles.headerActions}>
+              <Pressable accessibilityLabel="Пошук задач" hitSlop={2} onPress={s.toggleListSearch} style={styles.iconBtn}><SearchIcon size={17} color={palette.textMuted} /></Pressable>
+              <Pressable
+                accessibilityLabel={`Фільтри задач${activeFilterCount ? `, вибрано ${activeFilterCount}` : ''}`}
+                hitSlop={2}
+                onPress={s.openListFilters}
+                style={[styles.iconBtn, activeFilterCount > 0 && styles.iconBtnActive]}
+              >
+                <FunnelIcon size={17} color={activeFilterCount > 0 ? palette.accent : palette.textMuted} />
+                {activeFilterCount > 0 ? <Text style={styles.filterBadge}>{activeFilterCount > 9 ? '9+' : activeFilterCount}</Text> : null}
+              </Pressable>
+              <Pressable accessibilityLabel="Кольори категорій" hitSlop={2} onPress={s.openCategoryEditor} style={styles.iconBtn}><PaletteIcon size={17} color={palette.textMuted} /></Pressable>
+            </View>
+          )}
         />
 
         {s.listSearchOpen ? (
@@ -80,9 +96,44 @@ export default function ListTab() {
           </View>
         ) : null}
 
+        {activeFilterCount > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activeFilters}>
+            {s.listPriorityFilters.map((priority) => {
+              const color = priorityColor(priority);
+              return (
+                <Pressable key={priority} onPress={() => s.setListFilters(s.listPriorityFilters.filter((item) => item !== priority), s.listCategoryFilters)} style={[styles.filterChip, { borderColor: withAlpha(color, 0.5), backgroundColor: withAlpha(color, 0.09) }]}>
+                  <View style={[styles.filterChipDot, { backgroundColor: color }]} />
+                  <Text style={styles.filterChipText}>{priorityLabel(priority)}</Text>
+                  <Text style={styles.filterChipX}>×</Text>
+                </Pressable>
+              );
+            })}
+            {s.listCategoryFilters.map((category) => {
+              const color = s.categories[category] || palette.textFaint;
+              return (
+                <Pressable key={category} onPress={() => s.setListFilters(s.listPriorityFilters, s.listCategoryFilters.filter((item) => item !== category))} style={[styles.filterChip, { borderColor: withAlpha(color, 0.5), backgroundColor: withAlpha(color, 0.09) }]}>
+                  <View style={[styles.filterChipDot, { backgroundColor: color }]} />
+                  <Text numberOfLines={1} style={styles.filterChipText}>{category}</Text>
+                  <Text style={styles.filterChipX}>×</Text>
+                </Pressable>
+              );
+            })}
+            <Pressable onPress={s.clearListFilters} style={styles.clearFiltersChip}><Text style={styles.clearFiltersText}>Очистити</Text></Pressable>
+          </ScrollView>
+        ) : null}
+
         <View style={{ marginBottom: 24 }}>
           <ProgressBar completed={done} total={total} />
         </View>
+
+        {activeFilterCount > 0 && visibleTaskCount === 0 ? (
+          <View style={styles.filterEmpty}>
+            <View style={styles.filterEmptyIcon}><FunnelIcon size={20} color={palette.textFaint} /></View>
+            <Text style={styles.filterEmptyTitle}>Немає задач із такими фільтрами</Text>
+            <Text style={styles.filterEmptyText}>Змініть пріоритети або категорії, щоб побачити найближчі задачі.</Text>
+            <Pressable onPress={s.clearListFilters} style={styles.filterEmptyButton}><Text style={styles.filterEmptyButtonText}>Скинути фільтри</Text></Pressable>
+          </View>
+        ) : null}
 
         {groups.map((g) => (
           <View key={g.key} style={{ marginBottom: 22 }}>
@@ -221,9 +272,25 @@ export default function ListTab() {
 
 const styles = StyleSheet.create({
   scroll: { paddingTop: 52, paddingHorizontal: 20, paddingBottom: 170 },
-  iconBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, alignItems: 'center', justifyContent: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  iconBtn: { position: 'relative', width: 40, height: 44, borderRadius: 13, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, alignItems: 'center', justifyContent: 'center' },
+  iconBtnActive: { borderColor: withAlpha(palette.accent, 0.65), backgroundColor: withAlpha(palette.accent, 0.09) },
+  filterBadge: { position: 'absolute', top: -5, right: -4, minWidth: 17, height: 17, paddingHorizontal: 3, borderRadius: 9, overflow: 'hidden', color: palette.white, backgroundColor: palette.accent, fontSize: 9.5, lineHeight: 17, fontWeight: '800', textAlign: 'center' },
   searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 14, paddingHorizontal: 14, height: 44, marginBottom: 18 },
   searchInput: { flex: 1, color: palette.text, fontSize: 14, padding: 0 },
+  activeFilters: { alignItems: 'center', gap: 7, paddingRight: 14, paddingBottom: 16 },
+  filterChip: { maxWidth: 170, minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, borderRadius: 11, borderWidth: 1 },
+  filterChipDot: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },
+  filterChipText: { minWidth: 0, color: palette.textSecondary, fontSize: 11.5, fontWeight: '600' },
+  filterChipX: { color: palette.textMuted, fontSize: 15, lineHeight: 17 },
+  clearFiltersChip: { minHeight: 34, justifyContent: 'center', paddingHorizontal: 8 },
+  clearFiltersText: { color: palette.accent, fontSize: 11.5, fontWeight: '700' },
+  filterEmpty: { alignItems: 'center', marginBottom: 24, paddingVertical: 26, paddingHorizontal: 20, borderRadius: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
+  filterEmptyIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.border, marginBottom: 12 },
+  filterEmptyTitle: { color: palette.text, fontSize: 14.5, fontWeight: '700', textAlign: 'center' },
+  filterEmptyText: { maxWidth: 270, color: palette.textMuted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 6 },
+  filterEmptyButton: { minHeight: 44, justifyContent: 'center', marginTop: 14, paddingHorizontal: 16, borderRadius: 12, backgroundColor: withAlpha(palette.accent, 0.1), borderWidth: 1, borderColor: withAlpha(palette.accent, 0.4) },
+  filterEmptyButtonText: { color: palette.accent, fontSize: 12.5, fontWeight: '700' },
   groupHeading: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 },
   groupLabel: { fontSize: 12, fontWeight: '600', color: palette.textMuted, letterSpacing: 0.6, textTransform: 'uppercase' },
   groupDate: { color: palette.textFaint, fontSize: 12, textTransform: 'none', letterSpacing: 0 },

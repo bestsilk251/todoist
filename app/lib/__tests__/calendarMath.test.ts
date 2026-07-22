@@ -1,4 +1,4 @@
-import { clockToMinutes, durationBetweenClocks, extractScheduleFromText, findBoundedFreeWindow, findScheduleConflict, getCompactTimelineRange, getNonHourlyBoundaries, getOccupiedMinutes, minutesToClock } from '../calendarMath';
+import { clockToMinutes, durationBetweenClocks, extractScheduleFromText, findBoundedFreeWindow, findScheduleConflict, getCompactTimelineRange, getConflictingItemIndexes, getNonHourlyBoundaries, getOccupiedMinutes, minutesToClock, snapTaskStartMinutes } from '../calendarMath';
 
 describe('calendarMath', () => {
   it('preserves minute precision and renders the end of day as 00:00', () => {
@@ -7,6 +7,13 @@ describe('calendarMath', () => {
     expect(minutesToClock(25 * 60 + 15)).toBe('01:15');
     expect(durationBetweenClocks('10:15', '11:40')).toBe(85);
     expect(durationBetweenClocks('23:30', '00:15')).toBe(45);
+  });
+
+  it('snaps dragged tasks to 15-minute starts and keeps them inside the day', () => {
+    expect(snapTaskStartMinutes(10 * 60 + 7, 60)).toBe(10 * 60);
+    expect(snapTaskStartMinutes(10 * 60 + 8, 60)).toBe(10 * 60 + 15);
+    expect(snapTaskStartMinutes(-20, 60)).toBe(0);
+    expect(snapTaskStartMinutes(24 * 60, 45)).toBe(23 * 60 + 15);
   });
 
   it('finds a two-hour weekday window only when tasks bound it', () => {
@@ -57,6 +64,17 @@ describe('calendarMath', () => {
       { time: '10:00', durationMinutes: 60 },
       { time: '11:00', durationMinutes: 60 },
     ])).toBeNull();
+  });
+
+  it('returns tasks from every separate conflict during the selected day', () => {
+    expect(getConflictingItemIndexes([
+      { time: '09:00', durationMinutes: 60 },
+      { time: '09:30', durationMinutes: 45 },
+      { time: '12:00', durationMinutes: 60 },
+      { time: '12:15', durationMinutes: 30 },
+      { time: '14:00', durationMinutes: 60 },
+      { time: '15:00', durationMinutes: 60 },
+    ])).toEqual([0, 1, 2, 3]);
   });
 
   it('counts occupied time between 08:00 and 22:00 without double-counting overlaps', () => {

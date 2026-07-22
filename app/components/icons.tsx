@@ -181,6 +181,18 @@ export function FunnelIcon({ size = 18, color = palette.textMuted }: IconProps) 
   );
 }
 
+export function PaletteIcon({ size = 18, color = palette.textMuted }: IconProps) {
+  return (
+    <Svg {...S(size)} fill="none">
+      <Path d="M12 3a9 9 0 1 0 0 18h1.4a2 2 0 0 0 1.5-3.3 1.8 1.8 0 0 1 1.4-3h1.2A3.5 3.5 0 0 0 21 11.2 8.5 8.5 0 0 0 12 3Z" stroke={color} strokeWidth={1.55} strokeLinejoin="round" />
+      <Circle cx={8} cy={9} r={1.15} fill={color} />
+      <Circle cx={12} cy={6.8} r={1.15} fill={color} />
+      <Circle cx={16} cy={9} r={1.15} fill={color} />
+      <Circle cx={8.5} cy={14} r={1.15} fill={color} />
+    </Svg>
+  );
+}
+
 export function BellIcon({ size = 17, color = palette.accent }: IconProps) {
   return (
     <Svg {...S(size)} fill="none">
@@ -256,6 +268,15 @@ export function CheckCircleIcon({ size = 14, color = palette.badgeGreen }: IconP
     <Svg {...S(size)} fill="none">
       <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.7} />
       <Path d="M8.5 12.3l2.3 2.3 4.7-4.9" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function UndoIcon({ size = 18, color = palette.accent }: IconProps) {
+  return (
+    <Svg {...S(size)} fill="none">
+      <Path d="M9 7H5V3" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M5.4 7A8 8 0 1 1 4 14.5" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
     </Svg>
   );
 }

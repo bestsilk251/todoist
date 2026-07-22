@@ -43,6 +43,14 @@ export function durationBetweenClocks(start: string, end: string): number {
   return duration;
 }
 
+export function snapTaskStartMinutes(value: number, durationMinutes: number, stepMinutes = 15): number {
+  const safeStep = Math.max(1, Math.round(stepMinutes));
+  const safeDuration = Math.max(1, Math.round(durationMinutes));
+  const maxStart = Math.max(0, Math.floor((24 * 60 - safeDuration) / safeStep) * safeStep);
+  const snapped = Math.round(value / safeStep) * safeStep;
+  return Math.max(0, Math.min(maxStart, snapped));
+}
+
 export function getNonHourlyBoundaries(items: TimedCalendarItem[]): number[] {
   const boundaries = new Set<number>();
   items.forEach((item) => {
@@ -89,6 +97,24 @@ export function findScheduleConflict(items: TimedCalendarItem[]): ScheduleConfli
     }
   }
   return null;
+}
+
+/** Returns every source item that overlaps at least one other item that day. */
+export function getConflictingItemIndexes(items: TimedCalendarItem[]): number[] {
+  const intervals = scheduledIntervals(items);
+  const conflicting = new Set<number>();
+  for (let firstIndex = 0; firstIndex < intervals.length; firstIndex += 1) {
+    const first = intervals[firstIndex];
+    for (let secondIndex = firstIndex + 1; secondIndex < intervals.length; secondIndex += 1) {
+      const second = intervals[secondIndex];
+      if (second.startMinutes >= first.endMinutes) break;
+      if (second.endMinutes > first.startMinutes) {
+        conflicting.add(first.itemIndex);
+        conflicting.add(second.itemIndex);
+      }
+    }
+  }
+  return [...conflicting].sort((a, b) => a - b);
 }
 
 /** Counts the union of scheduled time inside a selected part of the day. */

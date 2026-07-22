@@ -1,8 +1,7 @@
 /** Root of the dark v5 experience: hosts the active tab, bottom nav and every
  * overlay, all reading from the shared V5 store. */
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, StyleSheet } from 'react-native';
 import { palette } from '../../theme';
 import { V5Provider, useV5, type UserProfile } from './store';
 import HomeTab from './HomeTab';
@@ -17,6 +16,9 @@ import PreviewSheet from './PreviewSheet';
 import TimePicker from './TimePicker';
 import TaskDetail from './TaskDetail';
 import UsageGuide from './UsageGuide';
+import ConflictTasksSheet from './ConflictTasksSheet';
+import TaskActionToast from './TaskActionToast';
+import ListFiltersSheet from './ListFiltersSheet';
 import {
   CategoryEditor, AvatarMenu, LogoutConfirm, ShareSheet,
   AchievementsSheet, SecurityInfoSheet, AboutAppSheet,
@@ -24,7 +26,6 @@ import {
 
 function Shell() {
   const s = useV5();
-  const insets = useSafeAreaInsets();
   const dim = s.voiceState === 'recording';
 
   return (
@@ -49,14 +50,11 @@ function Shell() {
       <PreviewSheet />
       <LogoutConfirm />
       <VoiceOverlay />
+      <ListFiltersSheet />
+      <ConflictTasksSheet />
       <TimePicker />
       <UsageGuide />
-      {s.undoTaskId ? (
-        <View style={[styles.undoBar, { bottom: 74 + insets.bottom }]}>
-          <Text numberOfLines={1} style={styles.undoMessage}>Завдання виконано</Text>
-          <Pressable onPress={s.undoLastComplete} hitSlop={10}><Text style={styles.undoAction}>Скасувати</Text></Pressable>
-        </View>
-      ) : null}
+      <TaskActionToast />
     </View>
   );
 }
@@ -73,7 +71,4 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: palette.bg },
   content: { flex: 1 },
   contentDim: { opacity: 0.6, transform: [{ scale: 0.98 }] },
-  undoBar: { position: 'absolute', left: 20, right: 20, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14, paddingHorizontal: 16, borderRadius: 14, backgroundColor: palette.text, shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 12 },
-  undoMessage: { flex: 1, color: palette.bg, fontSize: 13.5, fontWeight: '600' },
-  undoAction: { color: palette.accentDeep, fontSize: 13.5, fontWeight: '800' },
 });

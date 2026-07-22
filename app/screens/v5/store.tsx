@@ -10,7 +10,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Platform, Vibration } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { V5Task, PreviewTask } from '../../lib/v5data';
-import { categoryColors as seedCategories } from '../../theme';
+import { categoryColors as seedCategories, type Priority } from '../../theme';
 import { getSupabaseClient } from '../../lib/supabase';
 import {
   fetchTasks, insertTasks, setStatus, removeTask, parseTaskText,
@@ -29,6 +29,7 @@ import {
 export type TabKey = 'home' | 'list' | 'calendar' | 'analytics' | 'profile';
 export type VoiceState = 'idle' | 'recording' | 'processing';
 export type CalendarView = 'day' | 'week' | 'month';
+export type UndoTaskKind = 'completed' | 'cancelled';
 
 interface V5State {
   activeTab: TabKey;
@@ -56,6 +57,9 @@ interface V5State {
   listAddMode: 'text' | null;
   listSearchOpen: boolean;
   listSearchQuery: string;
+  listFiltersOpen: boolean;
+  listPriorityFilters: Priority[];
+  listCategoryFilters: string[];
   avatarMenuOpen: boolean;
   logoutConfirmOpen: boolean;
   userName: string;
@@ -72,8 +76,12 @@ interface V5State {
   usageGuideOpen: boolean;
   calendarView: CalendarView;
   calendarDayOffset: number;
+  conflictTaskIds: string[];
+  conflictStartMinutes: number | null;
+  conflictEndMinutes: number | null;
   openSwipeId: string | null;
   undoTaskId: string | null;
+  undoTaskKind: UndoTaskKind | null;
 }
 
 const initialState: V5State = {
@@ -102,6 +110,9 @@ const initialState: V5State = {
   listAddMode: null,
   listSearchOpen: false,
   listSearchQuery: '',
+  listFiltersOpen: false,
+  listPriorityFilters: [],
+  listCategoryFilters: [],
   avatarMenuOpen: false,
   logoutConfirmOpen: false,
   userName: 'друже',
@@ -118,8 +129,12 @@ const initialState: V5State = {
   usageGuideOpen: false,
   calendarView: 'day',
   calendarDayOffset: 0,
+  conflictTaskIds: [],
+  conflictStartMinutes: null,
+  conflictEndMinutes: null,
   openSwipeId: null,
   undoTaskId: null,
+  undoTaskKind: null,
 };
 
 function buzz(pattern?: number | number[]) {
@@ -146,6 +161,7 @@ export interface V5Store extends V5State {
   toggleComplete: (id: string) => void;
   deleteTask: (id: string) => void;
   cancelTask: (id: string) => void;
+  postponeTask: (id: string) => void;
   restoreTask: (id: string) => void;
   setOpenSwipe: (id: string | null) => void;
   setTab: (t: TabKey) => void;
@@ -182,6 +198,10 @@ export interface V5Store extends V5State {
   toggleListSearch: () => void;
   closeListSearch: () => void;
   setListSearch: (q: string) => void;
+  openListFilters: () => void;
+  closeListFilters: () => void;
+  setListFilters: (priorities: Priority[], categories: string[]) => void;
+  clearListFilters: () => void;
   openAvatarMenu: () => void;
   closeAvatarMenu: () => void;
   openLogoutConfirm: () => void;
@@ -206,8 +226,10 @@ export interface V5Store extends V5State {
   setCategoryColor: (name: string, color: string) => void;
   createCategory: (name: string, color: string) => boolean;
   reorderTaskToTop: (id: string) => void;
-  undoLastComplete: () => void;
+  undoLastAction: () => void;
   dismissUndo: () => void;
+  openConflictTasks: (ids: string[], startMinutes: number | null, endMinutes: number | null) => void;
+  closeConflictTasks: () => void;
   goToToday: () => void;
   setCalendarView: (v: CalendarView) => void;
   setCalendarDay: (offset: number) => void;
@@ -366,26 +388,67 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
           tasks: s.tasks.map((x) => (x.id === id ? { ...x, completed: nextDone, cancelled: false, completedAt, overdue: nextDone ? false : isOverdueNow({ ...x, completed: false, cancelled: false }) } : x)),
           openSwipeId: s.openSwipeId === id ? null : s.openSwipeId,
           undoTaskId: nextDone ? id : (s.undoTaskId === id ? null : s.undoTaskId),
+          undoTaskKind: nextDone ? 'completed' : (s.undoTaskId === id ? null : s.undoTaskKind),
         }));
-        if (undoTimer.current) clearTimeout(undoTimer.current);
-        if (nextDone) undoTimer.current = setTimeout(() => set({ undoTaskId: null }), 5000);
+        if (nextDone || state.undoTaskId === id) {
+          if (undoTimer.current) clearTimeout(undoTimer.current);
+          undoTimer.current = null;
+        }
+        if (nextDone) {
+          undoTimer.current = setTimeout(() => set({ undoTaskId: null, undoTaskKind: null }), 5000);
+        }
         setStatus(id, nextDone ? 'done' : 'pending').catch(() => { reload(); });
       },
       deleteTask: (id) => {
-        setState((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id), openSwipeId: null }));
+        if (state.undoTaskId === id && undoTimer.current) {
+          clearTimeout(undoTimer.current);
+          undoTimer.current = null;
+        }
+        setState((s) => ({
+          ...s,
+          tasks: s.tasks.filter((t) => t.id !== id),
+          conflictTaskIds: s.conflictTaskIds.filter((taskId) => taskId !== id),
+          undoTaskId: s.undoTaskId === id ? null : s.undoTaskId,
+          undoTaskKind: s.undoTaskId === id ? null : s.undoTaskKind,
+          openSwipeId: null,
+        }));
         removeTask(id).catch(() => { reload(); });
       },
       cancelTask: (id) => {
+        if (undoTimer.current) clearTimeout(undoTimer.current);
         setState((s) => ({
           ...s,
           tasks: s.tasks.map((x) => (x.id === id ? { ...x, completed: false, cancelled: true, completedAt: null, overdue: false } : x)),
+          conflictTaskIds: s.conflictTaskIds.filter((taskId) => taskId !== id),
           openSwipeId: null,
-          undoTaskId: s.undoTaskId === id ? null : s.undoTaskId,
+          undoTaskId: id,
+          undoTaskKind: 'cancelled',
         }));
+        undoTimer.current = setTimeout(() => set({ undoTaskId: null, undoTaskKind: null }), 5000);
         buzz(20);
         setStatus(id, 'cancelled').catch(() => { reload(); });
       },
+      postponeTask: (id) => {
+        const task = state.tasks.find((item) => item.id === id);
+        if (!task) return;
+        const dueInDays = (task.dueInDays ?? 0) + 1;
+        setState((current) => ({
+          ...current,
+          tasks: current.tasks.map((item) => item.id === id ? {
+            ...item,
+            dueInDays,
+            overdue: false,
+          } : item),
+          conflictTaskIds: current.conflictTaskIds.filter((taskId) => taskId !== id),
+        }));
+        buzz(15);
+        persistTaskFields(id, { dueInDays }).catch(() => { reload(); });
+      },
       restoreTask: (id) => {
+        if (state.undoTaskId === id && undoTimer.current) {
+          clearTimeout(undoTimer.current);
+          undoTimer.current = null;
+        }
         setState((s) => ({
           ...s,
           tasks: s.tasks.map((x) => {
@@ -393,6 +456,8 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
             const restored = { ...x, completed: false, cancelled: false, completedAt: null };
             return { ...restored, overdue: isOverdueNow(restored) };
           }),
+          undoTaskId: s.undoTaskId === id ? null : s.undoTaskId,
+          undoTaskKind: s.undoTaskId === id ? null : s.undoTaskKind,
         }));
         setStatus(id, 'pending').catch(() => { reload(); });
       },
@@ -612,6 +677,14 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       toggleListSearch: () => set((s) => ({ listSearchOpen: !s.listSearchOpen, listSearchQuery: s.listSearchOpen ? '' : s.listSearchQuery })),
       closeListSearch: () => set({ listSearchOpen: false, listSearchQuery: '' }),
       setListSearch: (q) => set({ listSearchQuery: q }),
+      openListFilters: () => set({ listFiltersOpen: true }),
+      closeListFilters: () => set({ listFiltersOpen: false }),
+      setListFilters: (priorities, categories) => set({
+        listPriorityFilters: [...new Set(priorities)],
+        listCategoryFilters: [...new Set(categories)],
+        listFiltersOpen: false,
+      }),
+      clearListFilters: () => set({ listPriorityFilters: [], listCategoryFilters: [] }),
 
       openAvatarMenu: () => set({ avatarMenuOpen: true }),
       closeAvatarMenu: () => set({ avatarMenuOpen: false }),
@@ -682,13 +755,15 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
         });
         buzz(20);
       },
-      undoLastComplete: () => {
+      undoLastAction: () => {
         const id = state.undoTaskId;
         if (!id) return;
         if (undoTimer.current) clearTimeout(undoTimer.current);
+        undoTimer.current = null;
         setState((current) => ({
           ...current,
           undoTaskId: null,
+          undoTaskKind: null,
           tasks: current.tasks.map((task) => task.id === id ? {
             ...task,
             completed: false,
@@ -697,12 +772,29 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
             overdue: isOverdueNow({ ...task, completed: false, cancelled: false }),
           } : task),
         }));
+        buzz(15);
         setStatus(id, 'pending').catch(() => { reload(); });
       },
       dismissUndo: () => {
         if (undoTimer.current) clearTimeout(undoTimer.current);
-        set({ undoTaskId: null });
+        undoTimer.current = null;
+        set({ undoTaskId: null, undoTaskKind: null });
       },
+
+      openConflictTasks: (ids, startMinutes, endMinutes) => {
+        const taskIds = [...new Set(ids)].filter((id) => state.tasks.some((task) => task.id === id));
+        if (taskIds.length < 2) return;
+        set({
+          conflictTaskIds: taskIds,
+          conflictStartMinutes: startMinutes,
+          conflictEndMinutes: endMinutes,
+        });
+      },
+      closeConflictTasks: () => set({
+        conflictTaskIds: [],
+        conflictStartMinutes: null,
+        conflictEndMinutes: null,
+      }),
 
       goToToday: () => set({ calendarDayOffset: 0, calendarView: 'day' }),
       setCalendarView: (v) => set({ calendarView: v }),

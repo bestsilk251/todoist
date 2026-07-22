@@ -172,6 +172,7 @@ export async function setStatus(id: string, status: 'pending' | 'done' | 'cancel
 export interface EditableTaskFields {
   time?: string;
   durationMinutes?: number | null;
+  dueInDays?: number | null;
   category?: string;
   priority?: Priority;
 }
@@ -185,6 +186,7 @@ export async function updateTaskFields(id: string, fields: EditableTaskFields): 
     if (fields.time && fields.durationMinutes === undefined) patch.duration_minutes = DEFAULT_TIMED_TASK_DURATION_MINUTES;
   }
   if (fields.durationMinutes !== undefined) patch.duration_minutes = fields.durationMinutes;
+  if (fields.dueInDays !== undefined) patch.due_date = fields.dueInDays == null ? null : isoFromOffset(fields.dueInDays);
   if (fields.category !== undefined) patch.category = fields.category;
   if (fields.priority !== undefined) {
     patch.priority = fields.priority;
