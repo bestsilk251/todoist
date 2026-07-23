@@ -1,4 +1,4 @@
-import { enrichParsedTasksWithSchedule, inferPriorityFromText, isoOf, isPreviewScheduledInPast, previewFromParsed, previewToInsert, resolveParsedCategory, rowToV5 } from '../tasksRepo';
+import { enrichParsedTasksWithSchedule, inferPriorityFromText, isoOf, isPreviewScheduledInPast, previewFromParsed, previewToInsert, previewToOptimisticTask, resolveParsedCategory, rowToV5 } from '../tasksRepo';
 import type { Task } from '../../types';
 
 function databaseTask(overrides: Partial<Task> = {}): Task {
@@ -89,6 +89,46 @@ describe('parsed task duration persistence', () => {
       time: '10:15',
       is_all_day: false,
       duration_minutes: 85,
+    }));
+  });
+
+  it('corrects a literal server hour with the local colloquial-time rule', () => {
+    const [task] = enrichParsedTasksWithSchedule([{
+      title: 'Зробити звіт',
+      date: '2026-07-23',
+      time: '05:00',
+      is_all_day: false,
+      needs_confirmation: true,
+      duration_minutes: 60,
+    }], 'Зробити звіт на 5 годину');
+
+    expect(task).toEqual(expect.objectContaining({
+      time: '17:00',
+      is_all_day: false,
+      needs_confirmation: true,
+    }));
+  });
+
+  it('creates an immediate local task while the database insert finishes', () => {
+    const preview = previewFromParsed({
+      title: 'Вечірня зустріч',
+      date: '2026-07-23',
+      time: '20:00',
+      is_all_day: false,
+      needs_confirmation: false,
+      duration_minutes: 45,
+      category: 'Робота',
+    }, 'preview-optimistic', ['Робота']);
+    const optimistic = previewToOptimisticTask(preview, 'optimistic-1', new Date(2026, 6, 23, 10, 0));
+
+    expect(optimistic).toEqual(expect.objectContaining({
+      id: 'optimistic-1',
+      title: 'Вечірня зустріч',
+      dueInDays: 0,
+      time: '20:00',
+      durationMinutes: 45,
+      category: 'Робота',
+      completed: false,
     }));
   });
 

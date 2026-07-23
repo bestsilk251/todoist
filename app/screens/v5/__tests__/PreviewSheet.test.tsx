@@ -7,7 +7,7 @@ jest.mock('../PreviewDatePicker', () => () => null);
 
 function mockPreview(open = true) {
   const confirmSave = jest.fn();
-  (useV5 as jest.Mock).mockReturnValue({
+  const store = {
     previewOpen: open,
     previewTasks: [{
       id: 'preview-1',
@@ -30,22 +30,24 @@ function mockPreview(open = true) {
     cyclePreviewCategory: jest.fn(),
     togglePreviewImportant: jest.fn(),
     cancelPreview: jest.fn(),
-  });
-  return confirmSave;
+  };
+  (useV5 as jest.Mock).mockReturnValue(store);
+  return { confirmSave, store };
 }
 
 describe('PreviewSheet backdrop confirmation', () => {
   it('saves through the same action when the area above the sheet is pressed', () => {
-    const confirmSave = mockPreview();
+    const { confirmSave } = mockPreview();
     const screen = render(<PreviewSheet />);
 
     fireEvent.press(screen.getByTestId('preview-save-backdrop'));
 
     expect(confirmSave).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Торкніться поза шторкою, щоб зберегти')).toBeNull();
   });
 
   it('keeps the existing save button connected to the same action', () => {
-    const confirmSave = mockPreview();
+    const { confirmSave } = mockPreview();
     const screen = render(<PreviewSheet />);
 
     fireEvent.press(screen.getByText('Зберегти всі задачі'));
@@ -70,9 +72,21 @@ describe('PreviewSheet backdrop confirmation', () => {
 
     fireEvent.press(screen.getByLabelText('Змінити тривалість задачі Зустріч з командою'));
     fireEvent.press(screen.getByLabelText('Встановити тривалість 45 хв'));
+    fireEvent.press(screen.getByText('Готово'));
 
     const store = (useV5 as jest.Mock).mock.results.at(-1)?.value;
     expect(store.updatePreviewField).toHaveBeenCalledWith('preview-1', 'duration', '45 хв');
+  });
+
+  it('offers a time picker immediately when parsed text has no time', () => {
+    const { store } = mockPreview();
+    store.previewTasks[0].time = '';
+    const screen = render(<PreviewSheet />);
+
+    fireEvent.press(screen.getByLabelText('Додати час задачі Зустріч з командою'));
+
+    expect(store.openTimePicker).toHaveBeenCalledWith('preview-1');
+    expect(screen.getByText('Додати час')).toBeTruthy();
   });
 
   it('renders nothing when confirmation is closed', () => {

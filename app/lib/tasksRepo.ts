@@ -185,6 +185,28 @@ export function previewToInsert(p: PreviewTask): Record<string, unknown> {
   };
 }
 
+export function previewToOptimisticTask(p: PreviewTask, id: string, today = new Date()): V5Task {
+  const parsedDuration = parseDurationMinutes(p.duration);
+  const priority: Priority = p.priority ?? (p.important ? 'medium' : 'low');
+  return {
+    id,
+    dueInDays: offsetFromToday(p.iso, today),
+    title: p.title,
+    time: p.time,
+    category: p.category,
+    priority,
+    completed: false,
+    cancelled: false,
+    overdue: false,
+    repeat: false,
+    hasSubtasks: false,
+    subtaskCount: 0,
+    durationMinutes: p.time ? (parsedDuration ?? DEFAULT_TIMED_TASK_DURATION_MINUTES) : parsedDuration,
+    completedAt: null,
+    cancelledAt: null,
+  };
+}
+
 export function inferPriorityFromText(value: string): Priority | null {
   const text = value.toLocaleLowerCase('uk-UA');
   if (/(термінов\w*|критичн\w*|негайн\w*)/u.test(text)) return 'urgent';
@@ -199,7 +221,9 @@ export function enrichParsedTasksWithSchedule(tasks: ParsedTask[], sourceText: s
   if (!inferred) return tasks;
   return tasks.map((task, index) => {
     if (index !== 0) return task;
-    const time = task.time ?? inferred.startTime;
+    // Deterministic local rules correct colloquial hours even when the remote
+    // parser interpreted "на 5 годину" literally as 05:00.
+    const time = inferred.startTime ?? task.time;
     return {
       ...task,
       time,

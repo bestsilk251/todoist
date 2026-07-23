@@ -15,7 +15,7 @@ import { categoryColors as seedCategories, type Priority } from '../../theme';
 import { getSupabaseClient } from '../../lib/supabase';
 import {
   fetchTasks, insertTasks, setStatus, removeTask, parseTaskText,
-  rowToV5, previewFromParsed, previewToInsert, isoOf, isoFromOffset,
+  rowToV5, previewFromParsed, previewToInsert, previewToOptimisticTask, isoOf, isoFromOffset,
   isPreviewScheduledInPast,
   updateTaskFields as persistTaskFields,
 } from '../../lib/tasksRepo';
@@ -426,7 +426,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
     const parsed = split.taskText ? await Promise.race([
       parseTaskText(split.taskText, categoryNames),
       new Promise<Awaited<ReturnType<typeof parseTaskText>>>((resolve) => {
-        timeout = setTimeout(() => resolve([]), 8000);
+        timeout = setTimeout(() => resolve([]), 1800);
       }),
     ]) : [];
     if (timeout) clearTimeout(timeout);
@@ -705,6 +705,10 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
           return;
         }
         const payloads = state.previewTasks.map(previewToInsert);
+        const optimisticTasks = state.previewTasks.map((task, index) => (
+          previewToOptimisticTask(task, `optimistic-${Date.now()}-${index}`)
+        ));
+        const optimisticIds = new Set(optimisticTasks.map((task) => task.id));
         const command = resolveTaskScheduleCommand(state.previewCommandText, state.previewTasks, state.tasks) ?? state.previewCommand;
         const commandTasks = command
           ? state.tasks.filter((task) => command.taskIds.includes(task.id))
@@ -718,24 +722,44 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
             dueInDays: (task.dueInDays ?? 0) + dayShift,
           });
         });
-        set({ previewOpen: false, previewTasks: [], previewCommandText: null, previewCommand: null, editingPreviewId: null, previewError: null });
+        setState((current) => ({
+          ...current,
+          tasks: [...current.tasks, ...optimisticTasks],
+          previewOpen: false,
+          previewTasks: [],
+          previewCommandText: null,
+          previewCommand: null,
+          editingPreviewId: null,
+          previewError: null,
+        }));
         Promise.all([insertTasks(payloads), Promise.all(commandRequests)])
           .then(([insertedRows]) => {
             if (commandRequests.length > 0 || insertedRows.length === 0) { reload(); return; }
             const now = new Date();
             set((current) => ({
               tasks: [
-                ...current.tasks.filter((task) => !insertedRows.some((row) => row.id === task.id)),
+                ...current.tasks.filter((task) => !optimisticIds.has(task.id) && !insertedRows.some((row) => row.id === task.id)),
                 ...insertedRows.map((row) => rowToV5(row, now)),
               ],
             }));
           })
-          .catch(() => { reload(); });
+          .catch(() => {
+            set((current) => ({ tasks: current.tasks.filter((task) => !optimisticIds.has(task.id)) }));
+            reload();
+          });
       },
 
       openTimePicker: (id) => {
         const p = state.previewTasks.find((t) => t.id === id);
-        const [h, m] = p && p.time ? p.time.split(':').map(Number) : [9, 0];
+        const now = new Date();
+        const roundedNow = Math.min(
+          23 * 60 + 55,
+          Math.ceil((now.getHours() * 60 + now.getMinutes()) / 5) * 5,
+        );
+        const fallback = p?.iso === isoOf(now)
+          ? [Math.floor(roundedNow / 60), roundedNow % 60]
+          : [9, 0];
+        const [h, m] = p?.time ? p.time.split(':').map(Number) : fallback;
         set({ timePickerId: id, timePickerTarget: 'preview', timePickerHour: h, timePickerMinute: m, timePickerError: null });
       },
       openTaskTimePicker: (id) => {

@@ -152,7 +152,7 @@ export function getOccupiedMinutes(
   return occupiedMinutes;
 }
 
-/** Extracts either an explicit time range or a stated duration from free text. */
+/** Extracts an explicit time/range and planned duration from free text. */
 export function extractScheduleFromText(text: string): ExtractedSchedule | null {
   const replaceStandaloneWord = (source: string, words: string, value: string): string => {
     const lettersAndDigits = 'A-Za-zА-Яа-яІіЇїЄєҐґ0-9';
@@ -181,10 +181,65 @@ export function extractScheduleFromText(text: string): ExtractedSchedule | null 
     }
   }
 
-  const hoursMatch = normalized.match(/(\d+(?:[.,]\d+)?)\s*(?:год(?:ину|ина|ини|ин)?|hours?|hrs?|h)/i);
-  const minutesMatch = normalized.match(/(\d+)\s*(?:хв(?:илина|илини|илин)?|minutes?|mins?|min)/i);
+  let durationSource = normalized;
+  let startTime: string | null = null;
+  const normalizeClock = (hourRaw: string, minuteRaw = '0', period?: string, assumeAfternoon = false): string | null => {
+    let hour = Number(hourRaw);
+    const minute = Number(minuteRaw);
+    if (hour > 23 || minute > 59) return null;
+    if (period && /вечора|увечері|вечір/u.test(period) && hour < 12) hour += 12;
+    if (period && /ранку|вранці|зранку|ранок/u.test(period) && hour === 12) hour = 0;
+    if (!period && assumeAfternoon && hour >= 1 && hour <= 7) hour += 12;
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  };
+  const consumeClock = (
+    match: RegExpMatchArray | null,
+    periodIndex?: number,
+    assumeAfternoon = false,
+    minuteIndex: number | null = 2,
+  ) => {
+    if (!match || startTime) return;
+    const parsed = normalizeClock(
+      match[1],
+      minuteIndex == null ? '0' : (match[minuteIndex] ?? '0'),
+      periodIndex == null ? undefined : match[periodIndex],
+      assumeAfternoon,
+    );
+    if (!parsed) return;
+    startTime = parsed;
+    durationSource = durationSource.replace(match[0], ' ');
+  };
+
+  // Qualifiers always win: "о 8 ранку" → 08:00, "о 8 вечора" → 20:00.
+  consumeClock(
+    durationSource.match(/(?:^|\s)(?:о|на)\s*(\d{1,2})(?:[:.](\d{2}))?\s*(ранку|вранці|зранку|вечора|увечері|на\s+вечір)(?=\s|[,.!?]|$)/iu),
+    3,
+  );
+  // A clock with minutes is a start time, not a duration.
+  consumeClock(
+    durationSource.match(/(?:^|\s)(?:о|на)\s*(\d{1,2})[:.](\d{2})(?=\s|[,.!?]|$)/iu),
+    undefined,
+    true,
+  );
+  // In Ukrainian planning language 3–12 "на ... годину" names the start hour.
+  // One/two hours remain duration phrases, which avoids breaking "на 1 годину".
+  const hourWord = durationSource.match(/(?:^|\s)(?:о|на)\s*(\d{1,2})\s*(годину|годині)(?=\s|[,.!?]|$)/iu);
+  if (hourWord && Number(hourWord[1]) >= 3 && Number(hourWord[1]) <= 12) {
+    consumeClock(hourWord, undefined, true, null);
+  }
+  // Also support the common shortened form "зустріч на 5".
+  consumeClock(
+    durationSource.match(/(?:^|\s)(?:о|на)\s*([1-7])(?![.:]\d)(?=\s*(?:[,.!?]|$))/iu),
+    undefined,
+    true,
+    null,
+  );
+
+  const hoursMatch = durationSource.match(/(\d+(?:[.,]\d+)?)\s*(?:год(?:ину|ина|ини|ин)?|hours?|hrs?|h)/i);
+  const minutesMatch = durationSource.match(/(\d+)\s*(?:хв(?:илина|илини|илин)?|minutes?|mins?|min)/i);
   const durationMinutes = Math.round(Number((hoursMatch?.[1] ?? '0').replace(',', '.')) * 60 + Number(minutesMatch?.[1] ?? 0));
-  return durationMinutes > 0 && durationMinutes <= 24 * 60 ? { startTime: null, durationMinutes } : null;
+  if (durationMinutes > 0 && durationMinutes <= 24 * 60) return { startTime, durationMinutes };
+  return startTime ? { startTime, durationMinutes: DEFAULT_TIMED_TASK_DURATION_MINUTES } : null;
 }
 
 /** Finds the first exact-size gap that is bounded by two scheduled tasks. */

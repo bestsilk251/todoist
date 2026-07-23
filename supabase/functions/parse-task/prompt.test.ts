@@ -30,6 +30,15 @@ Deno.test("prompt includes real category labels and requires an exact category f
   assert(prompt.includes("Never invent a category"));
 });
 
+Deno.test("prompt defines Ukrainian colloquial time rules", () => {
+  const prompt = buildSystemPrompt({ currentDate: "2026-07-20", timezone: "Europe/Kyiv" });
+  assert(prompt.includes('"на 5 годину"'));
+  assert(prompt.includes("17:00"));
+  assert(prompt.includes('"8 ранку" means 08:00'));
+  assert(prompt.includes('"8 вечора" means 20:00'));
+  assert(prompt.includes('"needs_confirmation" to false'));
+});
+
 Deno.test("addDays rolls over month boundaries", () => {
   assertEquals(addDays("2026-07-31", 1), "2026-08-01");
   assertEquals(addDays("2026-12-31", 1), "2027-01-01");

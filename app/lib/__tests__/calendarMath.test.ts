@@ -104,11 +104,25 @@ describe('calendarMath', () => {
 
   it('extracts exact planned duration from ranges and duration phrases', () => {
     expect(extractScheduleFromText('Завтра дзвінок з 10:15 до 11:40')).toEqual({ startTime: '10:15', durationMinutes: 85 });
-    expect(extractScheduleFromText('Тренування о 18:30 на 1 год 20 хв')).toEqual({ startTime: null, durationMinutes: 80 });
+    expect(extractScheduleFromText('Тренування о 18:30 на 1 год 20 хв')).toEqual({ startTime: '18:30', durationMinutes: 80 });
     expect(extractScheduleFromText('Дзвінок на одну годину')).toEqual({ startTime: null, durationMinutes: 60 });
     expect(extractScheduleFromText('Дзвінок на 1 годину')).toEqual({ startTime: null, durationMinutes: 60 });
     expect(extractScheduleFromText('Робота на півтори години')).toEqual({ startTime: null, durationMinutes: 90 });
     expect(extractScheduleFromText('Фокус-сесія for 45 minutes')).toEqual({ startTime: null, durationMinutes: 45 });
     expect(extractScheduleFromText('Статистика з 1 до 22 липня')).toBeNull();
+  });
+
+  it('understands colloquial Ukrainian morning and evening hours', () => {
+    expect(extractScheduleFromText('Зроби звіт на 5 годину')).toEqual({ startTime: '17:00', durationMinutes: 60 });
+    expect(extractScheduleFromText('Пробіжка о 8 ранку')).toEqual({ startTime: '08:00', durationMinutes: 60 });
+    expect(extractScheduleFromText('Зустріч о 8 вечора')).toEqual({ startTime: '20:00', durationMinutes: 60 });
+    expect(extractScheduleFromText('Зустріч на 5')).toEqual({ startTime: '17:00', durationMinutes: 60 });
+  });
+
+  it('keeps an explicit duration next to a colloquial start time', () => {
+    expect(extractScheduleFromText('Зустріч о 8 вечора на 45 хв')).toEqual({
+      startTime: '20:00',
+      durationMinutes: 45,
+    });
   });
 });

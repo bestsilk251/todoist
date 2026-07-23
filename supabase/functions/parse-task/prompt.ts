@@ -21,7 +21,7 @@ Rules:
    - "date": absolute date as YYYY-MM-DD, computed from the current date above. Never output a relative word like "tomorrow". Use null if the user gave no date at all.
    - "time": "HH:MM" in 24-hour form, or null if no time was given.
    - "is_all_day": true when "time" is null, false otherwise.
-   - "needs_confirmation": true when the date or time is ambiguous (for example "at 3" with no am/pm indication), false otherwise.
+   - "needs_confirmation": true when the date or time is genuinely ambiguous. Ukrainian colloquial hours covered below are not ambiguous.
    - "duration_minutes": planned duration as a positive integer number of minutes. If "time" is present but the user gave no duration or end time, use 60. If "time" is null, use null. For an explicit range such as "з 10:15 до 11:40", set "time" to the start ("10:15") and calculate the exact duration (85). Handle ranges across midnight.
    - "category": one exact value from the available category labels, or null.
    - "priority": "urgent", "high", "medium", "low", or null. The Ukrainian words "важлива", "важливий", or "важливо" mean "medium" unless the user explicitly says high or urgent.
@@ -36,12 +36,17 @@ Rules:
    - "низький пріоритет" or "неважлива" means "low".
    - Use null when no priority was stated.
 5. Never invent a duration. Extract it only from an explicit start/end range or phrases such as "на 2 години", "1 год 30 хв", or "for 45 minutes".
-6. Return ONLY a JSON array of these objects. No prose, no explanation, no markdown code fences.
+6. Ukrainian colloquial time rules:
+   - "на 5 годину" or shortened "на 5" means 17:00, not 05:00 and not a five-hour duration.
+   - Treat unqualified Ukrainian planning hours 1–7 as afternoon hours by adding 12.
+   - "8 ранку" means 08:00. "8 вечора" means 20:00. Explicit morning/evening qualifiers always win.
+   - These forms set "needs_confirmation" to false.
+7. Return ONLY a JSON array of these objects. No prose, no explanation, no markdown code fences.
 
 Examples:
 
 Input (uk): "сьогодні до лікаря на 3 а завтра на 4 купити телефон"
-Output: [{"title":"До лікаря","date":"${ctx.currentDate}","time":"15:00","is_all_day":false,"needs_confirmation":true,"duration_minutes":60,"category":"Здоров'я","priority":null},{"title":"Купити телефон","date":"${tomorrow}","time":"16:00","is_all_day":false,"needs_confirmation":true,"duration_minutes":60,"category":"Особисте","priority":null}]
+Output: [{"title":"До лікаря","date":"${ctx.currentDate}","time":"15:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Здоров'я","priority":null},{"title":"Купити телефон","date":"${tomorrow}","time":"16:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Особисте","priority":null}]
 
 Input (en): "call mom tomorrow morning"
 Output: [{"title":"Call mom","date":"${tomorrow}","time":null,"is_all_day":true,"needs_confirmation":false,"duration_minutes":null,"category":"Особисте","priority":null}]
@@ -50,7 +55,13 @@ Input (uk): "нагадай купити хліб"
 Output: [{"title":"Купити хліб","date":null,"time":null,"is_all_day":true,"needs_confirmation":false,"duration_minutes":null,"category":"Дім","priority":null}]
 
 Input (uk): "завтра працювати над презентацією з 10:15 до 11:40"
-Output: [{"title":"Працювати над презентацією","date":"${tomorrow}","time":"10:15","is_all_day":false,"needs_confirmation":false,"duration_minutes":85,"category":"Робота","priority":null}]`;
+Output: [{"title":"Працювати над презентацією","date":"${tomorrow}","time":"10:15","is_all_day":false,"needs_confirmation":false,"duration_minutes":85,"category":"Робота","priority":null}]
+
+Input (uk): "зробити звіт на 5 годину"
+Output: [{"title":"Зробити звіт","date":null,"time":"17:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Робота","priority":null}]
+
+Input (uk): "пробіжка о 8 ранку і зустріч о 8 вечора"
+Output: [{"title":"Пробіжка","date":null,"time":"08:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Здоров'я","priority":null},{"title":"Зустріч","date":null,"time":"20:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Особисте","priority":null}]`;
 }
 
 /** Adds `days` to a YYYY-MM-DD string and returns the same format. */

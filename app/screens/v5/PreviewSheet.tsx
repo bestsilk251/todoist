@@ -6,15 +6,7 @@ import { previewDateLabel } from '../../lib/tasksRepo';
 import { parseDurationMinutes } from '../../lib/analyticsMath';
 import { useV5 } from './store';
 import PreviewDatePicker from './PreviewDatePicker';
-
-const DURATION_PRESETS = [15, 30, 45, 60, 90, 120];
-
-function formatPreviewDuration(minutes: number): string {
-  const safeMinutes = Math.max(15, Math.min(24 * 60, Math.round(minutes)));
-  const hours = Math.floor(safeMinutes / 60);
-  const rest = safeMinutes % 60;
-  return `${hours ? `${hours} год` : ''}${rest ? ` ${rest} хв` : ''}`.trim();
-}
+import DurationPicker, { formatDurationLabel } from './DurationPicker';
 
 export default function PreviewSheet() {
   const s = useV5();
@@ -31,6 +23,7 @@ export default function PreviewSheet() {
   if (!s.previewOpen) return null;
 
   const dateTarget = s.previewTasks.find((task) => task.id === dateTargetId) ?? null;
+  const durationTarget = s.previewTasks.find((task) => task.id === durationTargetId) ?? null;
 
   return (
     <>
@@ -42,9 +35,7 @@ export default function PreviewSheet() {
           accessibilityHint="Виконує ту саму дію, що й кнопка Зберегти всі задачі"
           onPress={s.confirmSave}
           style={({ pressed }) => [styles.saveBackdrop, pressed && styles.saveBackdropPressed]}
-        >
-          <Text style={styles.backdropHint}>Торкніться поза шторкою, щоб зберегти</Text>
-        </Pressable>
+        />
         <View style={styles.sheet}>
           <View style={styles.head}>
             <Text style={styles.title}>{s.previewTasks.length ? 'Перевірте задачі' : 'Перевірте команду'}</Text>
@@ -77,9 +68,7 @@ export default function PreviewSheet() {
           {s.previewTasks.map((p) => {
             const editing = s.editingPreviewId === p.id;
             const choosingCategory = categoryTargetId === p.id;
-            const choosingDuration = durationTargetId === p.id;
             const cat = s.categories[p.category] || palette.textFaint;
-            const currentDuration = parseDurationMinutes(p.duration) ?? 60;
             const cardBorder = editing ? palette.accent : p.needsConfirmation ? palette.accentDeep : palette.border;
             const cardBg = p.needsConfirmation ? withAlpha(palette.accentDeep, 0.14) : palette.surface;
             return (
@@ -102,23 +91,26 @@ export default function PreviewSheet() {
                   <Pressable onPress={() => setDateTargetId(p.id)} style={styles.datePill}>
                     <Text style={styles.datePillText}>{previewDateLabel(p.iso)}</Text>
                   </Pressable>
-                  {editing ? (
-                    <Pressable onPress={() => s.openTimePicker(p.id)} style={styles.timePill}><Text style={styles.timePillText}>{p.time || 'Час ⏱'}</Text></Pressable>
-                  ) : p.time ? (
-                    <Text style={styles.pillStatic}>{p.time}</Text>
-                  ) : null}
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityState={{ expanded: choosingDuration }}
+                    accessibilityLabel={`${p.time ? 'Змінити' : 'Додати'} час задачі ${p.title}`}
+                    onPress={(event) => { event?.stopPropagation?.(); s.openTimePicker(p.id); }}
+                    style={[styles.timePill, !p.time && styles.timePillEmpty]}
+                  >
+                    <Text style={styles.timePillText}>{p.time || 'Додати час'}</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: durationTargetId === p.id }}
                     accessibilityLabel={`Змінити тривалість задачі ${p.title}`}
                     onPress={(event) => {
                       event?.stopPropagation?.();
-                      setDurationTargetId(choosingDuration ? null : p.id);
+                      setDurationTargetId(p.id);
                       setCategoryTargetId(null);
                     }}
-                    style={[styles.editablePill, choosingDuration && styles.editablePillActive]}
+                    style={[styles.editablePill, durationTargetId === p.id && styles.editablePillActive]}
                   >
-                    <Text style={[styles.editablePillText, choosingDuration && styles.editablePillTextActive]}>{p.duration || 'Тривалість'}</Text>
+                    <Text style={[styles.editablePillText, durationTargetId === p.id && styles.editablePillTextActive]}>{p.duration || 'Тривалість'}</Text>
                   </Pressable>
                   <Pressable
                     accessibilityRole="button"
@@ -138,48 +130,6 @@ export default function PreviewSheet() {
                     <Pressable onPress={() => s.togglePreviewImportant(p.id)} style={styles.importantPill}><Text style={styles.importantText}>{p.priority === 'urgent' ? 'Терміново' : p.priority === 'high' ? 'Високий' : 'Важливо · середній'}</Text></Pressable>
                   ) : null}
                 </View>
-
-                {choosingDuration ? (
-                  <View style={styles.optionPanel}>
-                    <View style={styles.optionPanelHeader}>
-                      <View>
-                        <Text style={styles.optionPanelTitle}>Тривалість</Text>
-                        <Text style={styles.optionPanelHint}>Запланований час виконання</Text>
-                      </View>
-                      <Pressable onPress={(event) => { event?.stopPropagation?.(); setDurationTargetId(null); }} style={styles.optionDone}><Text style={styles.optionDoneText}>Готово</Text></Pressable>
-                    </View>
-                    <View style={styles.durationStepper}>
-                      <Pressable
-                        accessibilityLabel="Зменшити тривалість на 15 хвилин"
-                        disabled={currentDuration <= 15}
-                        onPress={(event) => { event?.stopPropagation?.(); s.updatePreviewField(p.id, 'duration', formatPreviewDuration(currentDuration - 15)); }}
-                        style={[styles.stepButton, currentDuration <= 15 && styles.stepButtonDisabled]}
-                      ><Text style={styles.stepButtonText}>−15</Text></Pressable>
-                      <Text style={styles.durationValue}>{formatPreviewDuration(currentDuration)}</Text>
-                      <Pressable
-                        accessibilityLabel="Збільшити тривалість на 15 хвилин"
-                        disabled={currentDuration >= 24 * 60}
-                        onPress={(event) => { event?.stopPropagation?.(); s.updatePreviewField(p.id, 'duration', formatPreviewDuration(currentDuration + 15)); }}
-                        style={[styles.stepButton, currentDuration >= 24 * 60 && styles.stepButtonDisabled]}
-                      ><Text style={styles.stepButtonText}>+15</Text></Pressable>
-                    </View>
-                    <View style={styles.durationPresets}>
-                      {DURATION_PRESETS.map((minutes) => {
-                        const active = currentDuration === minutes;
-                        const label = formatPreviewDuration(minutes);
-                        return (
-                          <Pressable
-                            key={minutes}
-                            accessibilityLabel={`Встановити тривалість ${label}`}
-                            accessibilityState={{ selected: active }}
-                            onPress={(event) => { event?.stopPropagation?.(); s.updatePreviewField(p.id, 'duration', label); }}
-                            style={[styles.durationPreset, active && styles.durationPresetActive]}
-                          ><Text style={[styles.durationPresetText, active && styles.durationPresetTextActive]}>{label}</Text></Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-                ) : null}
 
                 {choosingCategory ? (
                   <View style={styles.optionPanel}>
@@ -246,15 +196,22 @@ export default function PreviewSheet() {
           if (dateTargetId) s.updatePreviewField(dateTargetId, 'iso', iso);
         }}
       />
+      <DurationPicker
+        visible={durationTarget != null}
+        valueMinutes={parseDurationMinutes(durationTarget?.duration ?? '') ?? 60}
+        onClose={() => setDurationTargetId(null)}
+        onSelect={(minutes) => {
+          if (durationTargetId) s.updatePreviewField(durationTargetId, 'duration', formatDurationLabel(minutes));
+        }}
+      />
     </>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 30 },
-  saveBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 20, paddingBottom: 10 },
+  saveBackdrop: { flex: 1 },
   saveBackdropPressed: { backgroundColor: 'rgba(255,255,255,0.02)' },
-  backdropHint: { color: palette.textFaint, fontSize: 11.5, fontWeight: '600', textAlign: 'center' },
   sheet: { backgroundColor: palette.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: palette.border, maxHeight: '86%' },
   head: { paddingTop: 22, paddingHorizontal: 20, paddingBottom: 10 },
   title: { fontSize: 19, fontWeight: '700', color: palette.text },
@@ -280,7 +237,6 @@ const styles = StyleSheet.create({
   tags: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' },
   datePill: { minHeight: 30, justifyContent: 'center', backgroundColor: withAlpha(palette.accent, 0.08), borderWidth: 1, borderColor: withAlpha(palette.accent, 0.24), paddingHorizontal: 10, paddingVertical: 4, borderRadius: 9 },
   datePillText: { fontSize: 11, color: palette.accent, fontWeight: '600' },
-  pillStatic: { fontSize: 11, color: palette.textMuted, backgroundColor: palette.chip, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, overflow: 'hidden' },
   editablePill: { minHeight: 30, justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 9, backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.border },
   editablePillActive: { borderColor: palette.accent, backgroundColor: withAlpha(palette.accent, 0.09) },
   editablePillText: { color: palette.textMuted, fontSize: 11, fontWeight: '600' },
@@ -289,6 +245,7 @@ const styles = StyleSheet.create({
   categoryDot: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },
   categoryPillText: { minWidth: 0, fontSize: 11, fontWeight: '600' },
   timePill: { backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.textFainter, borderStyle: 'dashed', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  timePillEmpty: { borderColor: withAlpha(palette.accent, 0.48), backgroundColor: withAlpha(palette.accent, 0.07) },
   timePillText: { fontSize: 11, color: palette.text },
   importantPill: { backgroundColor: withAlpha(palette.accent, 0.12), paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   importantText: { fontSize: 11, color: palette.accent },
@@ -298,16 +255,6 @@ const styles = StyleSheet.create({
   optionPanelHint: { color: palette.textFaint, fontSize: 10.5, marginTop: 2 },
   optionDone: { minHeight: 34, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 10, backgroundColor: palette.chip },
   optionDoneText: { color: palette.textSecondary, fontSize: 11, fontWeight: '700' },
-  durationStepper: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  stepButton: { width: 54, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.borderStrong },
-  stepButtonDisabled: { opacity: 0.35 },
-  stepButtonText: { color: palette.textSecondary, fontSize: 13, fontWeight: '700' },
-  durationValue: { flex: 1, color: palette.text, fontSize: 16, fontWeight: '800', textAlign: 'center' },
-  durationPresets: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  durationPreset: { minWidth: 74, minHeight: 38, flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9, borderRadius: 10, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
-  durationPresetActive: { backgroundColor: withAlpha(palette.accent, 0.1), borderColor: palette.accent },
-  durationPresetText: { color: palette.textMuted, fontSize: 11.5, fontWeight: '600' },
-  durationPresetTextActive: { color: palette.accent, fontWeight: '700' },
   categoryOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   categoryOption: { width: '48%', minHeight: 42, flexGrow: 1, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, borderRadius: 11, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
   categoryOptionDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },

@@ -32,9 +32,10 @@ interface WheelColumnProps {
   values: number[];
   selectedValue: number;
   onPick: (value: number) => void;
+  height?: number;
 }
 
-function WheelColumn({ accessibilityLabel, testID, values, selectedValue, onPick }: WheelColumnProps) {
+export function WheelColumn({ accessibilityLabel, testID, values, selectedValue, onPick, height = WHEEL_HEIGHT }: WheelColumnProps) {
   const listRef = useRef<FlatList<WheelItem>>(null);
   const lastEmittedValue = useRef(selectedValue);
   const items = useMemo<WheelItem[]>(() => Array.from({ length: WHEEL_LOOPS }, (_, loop) => (
@@ -95,8 +96,8 @@ function WheelColumn({ accessibilityLabel, testID, values, selectedValue, onPick
   };
 
   return (
-    <View style={styles.wheelColumn}>
-      <View pointerEvents="none" style={styles.wheelSelection} />
+    <View style={[styles.wheelColumn, { height }]}>
+      <View pointerEvents="none" style={[styles.wheelSelection, { top: (height - WHEEL_ROW_HEIGHT) / 2 }]} />
       <FlatList
         ref={listRef}
         testID={testID}
@@ -119,7 +120,7 @@ function WheelColumn({ accessibilityLabel, testID, values, selectedValue, onPick
             </Pressable>
           );
         }}
-        contentContainerStyle={styles.wheelContent}
+        contentContainerStyle={[styles.wheelContent, { paddingVertical: (height - WHEEL_ROW_HEIGHT) / 2 }]}
         snapToInterval={WHEEL_ROW_HEIGHT}
         snapToAlignment="start"
         decelerationRate="fast"
@@ -137,8 +138,8 @@ function WheelColumn({ accessibilityLabel, testID, values, selectedValue, onPick
         maxToRenderPerBatch={15}
         windowSize={7}
       />
-      <View pointerEvents="none" style={styles.wheelFadeTop} />
-      <View pointerEvents="none" style={styles.wheelFadeBottom} />
+      <View pointerEvents="none" style={[styles.wheelFadeTop, { height: Math.max(0, (height - WHEEL_ROW_HEIGHT) / 2) }]} />
+      <View pointerEvents="none" style={[styles.wheelFadeBottom, { height: Math.max(0, (height - WHEEL_ROW_HEIGHT) / 2) }]} />
     </View>
   );
 }
