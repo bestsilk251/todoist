@@ -14,6 +14,9 @@ const ITEMS: { key: TabKey; label: string; Icon: typeof HomeIcon }[] = [
   { key: 'profile', label: 'Профіль', Icon: ProfileIcon },
 ];
 
+const CONTENT_HORIZONTAL_INSET = 20;
+const NAV_RAISE = 15;
+
 export default function BottomNav() {
   const s = useV5();
   const insets = useSafeAreaInsets();
@@ -22,9 +25,9 @@ export default function BottomNav() {
       style={[
         styles.bar,
         {
-          left: Math.max(insets.left + 4, 12),
-          right: Math.max(insets.right + 4, 12),
-          bottom: Math.max(insets.bottom + 4, 12),
+          left: Math.max(insets.left + 4, CONTENT_HORIZONTAL_INSET),
+          right: Math.max(insets.right + 4, CONTENT_HORIZONTAL_INSET),
+          bottom: Math.max(insets.bottom + 4, 12) + NAV_RAISE,
         },
       ]}
     >

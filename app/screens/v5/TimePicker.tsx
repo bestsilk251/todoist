@@ -1,5 +1,5 @@
 /** Inertial wheel-style time picker sheet (hour / minute columns + presets). */
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import {
   FlatList,
   type NativeScrollEvent,
@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { palette, withAlpha } from '../../theme';
+import { shiftClockByMinutes } from '../../lib/calendarMath';
 import { useV5 } from './store';
 
 const WHEEL_ROW_HEIGHT = 48;
@@ -35,9 +36,18 @@ interface WheelColumnProps {
   height?: number;
 }
 
-export function WheelColumn({ accessibilityLabel, testID, values, selectedValue, onPick, height = WHEEL_HEIGHT }: WheelColumnProps) {
+export interface WheelColumnHandle {
+  syncToValue: (value: number) => void;
+}
+
+export const WheelColumn = forwardRef<WheelColumnHandle, WheelColumnProps>(function WheelColumn(
+  { accessibilityLabel, testID, values, selectedValue, onPick, height = WHEEL_HEIGHT },
+  forwardedRef,
+) {
   const listRef = useRef<FlatList<WheelItem>>(null);
   const lastEmittedValue = useRef(selectedValue);
+  const suppressScrollEvents = useRef(false);
+  const releaseSuppressionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const items = useMemo<WheelItem[]>(() => Array.from({ length: WHEEL_LOOPS }, (_, loop) => (
     values.map((value) => ({
       key: `${loop}-${value}`,
@@ -50,19 +60,38 @@ export function WheelColumn({ accessibilityLabel, testID, values, selectedValue,
   const middleIndex = WHEEL_MIDDLE_LOOP * values.length + selectedValueIndex;
   const initialIndex = useRef(middleIndex).current;
 
-  const scrollToValue = (value: number, animated: boolean) => {
+  const scrollToValue = useCallback((value: number, animated: boolean) => {
     const valueIndex = Math.max(0, values.indexOf(value));
     listRef.current?.scrollToOffset({
       offset: (WHEEL_MIDDLE_LOOP * values.length + valueIndex) * WHEEL_ROW_HEIGHT,
       animated,
     });
-  };
+  }, [values]);
+
+  const syncToValue = useCallback((value: number) => {
+    suppressScrollEvents.current = true;
+    lastEmittedValue.current = value;
+    if (releaseSuppressionTimer.current) clearTimeout(releaseSuppressionTimer.current);
+
+    // An immediate jump cancels any wheel momentum. Its synthetic scroll events
+    // are ignored briefly so they cannot overwrite the quick-action result.
+    scrollToValue(value, false);
+    releaseSuppressionTimer.current = setTimeout(() => {
+      suppressScrollEvents.current = false;
+      releaseSuppressionTimer.current = null;
+    }, 180);
+  }, [scrollToValue]);
+
+  useImperativeHandle(forwardedRef, () => ({ syncToValue }), [syncToValue]);
 
   useEffect(() => {
     if (selectedValue === lastEmittedValue.current) return;
-    lastEmittedValue.current = selectedValue;
-    scrollToValue(selectedValue, true);
-  }, [selectedValue]);
+    syncToValue(selectedValue);
+  }, [selectedValue, syncToValue]);
+
+  useEffect(() => () => {
+    if (releaseSuppressionTimer.current) clearTimeout(releaseSuppressionTimer.current);
+  }, []);
 
   const pickIndex = (rawIndex: number) => {
     const index = Math.max(0, Math.min(items.length - 1, rawIndex));
@@ -73,10 +102,12 @@ export function WheelColumn({ accessibilityLabel, testID, values, selectedValue,
   };
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (suppressScrollEvents.current) return;
     pickIndex(Math.round(event.nativeEvent.contentOffset.y / WHEEL_ROW_HEIGHT));
   };
 
   const handleMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (suppressScrollEvents.current) return;
     const index = Math.round(event.nativeEvent.contentOffset.y / WHEEL_ROW_HEIGHT);
     const value = items[Math.max(0, Math.min(items.length - 1, index))].value;
     pickIndex(index);
@@ -142,10 +173,12 @@ export function WheelColumn({ accessibilityLabel, testID, values, selectedValue,
       <View pointerEvents="none" style={[styles.wheelFadeBottom, { height: Math.max(0, (height - WHEEL_ROW_HEIGHT) / 2) }]} />
     </View>
   );
-}
+});
 
 export default function TimePicker() {
   const s = useV5();
+  const hourWheelRef = useRef<WheelColumnHandle>(null);
+  const minuteWheelRef = useRef<WheelColumnHandle>(null);
   if (s.timePickerId == null) return null;
   const title = s.timePickerTarget === 'task-end'
     ? 'Час завершення'
@@ -158,21 +191,19 @@ export default function TimePicker() {
     const totalMinutes = Math.ceil((time.getHours() * 60 + time.getMinutes()) / 5) * 5 % (24 * 60);
     return { h: Math.floor(totalMinutes / 60), m: totalMinutes % 60 };
   };
-  const plus = (mins: number) => {
-    const time = new Date();
-    time.setMinutes(time.getMinutes() + mins);
-    return roundedClock(time);
-  };
   const currentPreset = roundedClock(now);
-  const p30 = plus(30);
-  const p60 = plus(60);
   const presets = [
     { label: 'Зараз', h: currentPreset.h, m: currentPreset.m },
-    { label: '+30 хв', h: p30.h, m: p30.m },
-    { label: '+1 год', h: p60.h, m: p60.m },
+    { label: '+30 хв', deltaMinutes: 30 },
+    { label: '+1 год', deltaMinutes: 60 },
     { label: '18:00', h: 18, m: 0 },
     { label: '20:00', h: 20, m: 0 },
   ];
+  const applyQuickTime = (hour: number, minute: number) => {
+    hourWheelRef.current?.syncToValue(hour);
+    minuteWheelRef.current?.syncToValue(minute);
+    s.applyTimePreset(hour, minute);
+  };
 
   return (
     <Pressable onPress={s.closeTimePicker} style={styles.overlay}>
@@ -186,6 +217,7 @@ export default function TimePicker() {
 
         <View style={styles.wheels}>
           <WheelColumn
+            ref={hourWheelRef}
             accessibilityLabel="Години"
             testID="time-wheel-hours"
             values={HOUR_VALUES}
@@ -194,6 +226,7 @@ export default function TimePicker() {
           />
           <Text selectable={false} style={styles.colon}>:</Text>
           <WheelColumn
+            ref={minuteWheelRef}
             accessibilityLabel="Хвилини"
             testID="time-wheel-minutes"
             values={MINUTE_VALUES}
@@ -204,9 +237,20 @@ export default function TimePicker() {
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presets}>
           {presets.map((preset) => {
-            const active = preset.h === s.timePickerHour && preset.m === s.timePickerMinute;
+            const active = preset.deltaMinutes == null && preset.h === s.timePickerHour && preset.m === s.timePickerMinute;
             return (
-              <Pressable key={preset.label} onPress={() => s.applyTimePreset(preset.h, preset.m)} style={[styles.preset, active ? styles.presetActive : styles.presetIdle]}>
+              <Pressable
+                key={preset.label}
+                onPress={() => {
+                  if (preset.deltaMinutes != null) {
+                    const shifted = shiftClockByMinutes(s.timePickerHour, s.timePickerMinute, preset.deltaMinutes);
+                    applyQuickTime(shifted.hour, shifted.minute);
+                    return;
+                  }
+                  applyQuickTime(preset.h!, preset.m!);
+                }}
+                style={[styles.preset, active ? styles.presetActive : styles.presetIdle]}
+              >
                 <Text style={[styles.presetText, { color: active ? palette.accent : palette.textSecondary, fontWeight: active ? '600' : '400' }]}>{preset.label}</Text>
               </Pressable>
             );

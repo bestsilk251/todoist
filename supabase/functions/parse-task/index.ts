@@ -15,6 +15,9 @@ export interface ParseTaskResult {
   fallback?: true;
 }
 
+const MAX_PARSE_ATTEMPTS = 2;
+const MAX_INPUT_CHARACTERS = 20_000;
+
 /**
  * Core handler, kept free of Deno.serve so tests can drive it with a fake LLM.
  * Never throws: any LLM or validation failure degrades to a single unparsed
@@ -35,27 +38,31 @@ export async function handleParseTask(
     categories,
   });
 
-  try {
-    const raw = await callLLM(systemPrompt, input.text);
-    return { tasks: parseTaskList(raw) };
-  } catch (err) {
-    console.error("parse-task failed, falling back:", err);
-    return {
-      fallback: true,
-      tasks: [
-        {
-          title: input.text,
-          date: null,
-          time: null,
-          is_all_day: true,
-          needs_confirmation: true,
-          duration_minutes: null,
-          category: null,
-          priority: null,
-        },
-      ],
-    };
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < MAX_PARSE_ATTEMPTS; attempt += 1) {
+    try {
+      const raw = await callLLM(systemPrompt, input.text);
+      return { tasks: parseTaskList(raw) };
+    } catch (err) {
+      lastError = err;
+    }
   }
+  console.error("parse-task failed, falling back:", lastError);
+  return {
+    fallback: true,
+    tasks: [
+      {
+        title: input.text,
+        date: null,
+        time: null,
+        is_all_day: true,
+        needs_confirmation: true,
+        duration_minutes: null,
+        category: null,
+        priority: null,
+      },
+    ],
+  };
 }
 
 async function callClaude(systemPrompt: string, userText: string): Promise<string> {
@@ -71,7 +78,8 @@ async function callClaude(systemPrompt: string, userText: string): Promise<strin
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
+      max_tokens: 4096,
+      temperature: 0,
       system: systemPrompt,
       messages: [{ role: "user", content: userText }],
     }),
@@ -97,6 +105,18 @@ if (import.meta.main) {
       input = (await req.json()) as ParseTaskInput;
     } catch {
       return new Response(JSON.stringify({ error: "Invalid request body" }), {
+        status: 400,
+        headers: { ...CORS, "content-type": "application/json" },
+      });
+    }
+    if (
+      typeof input.text !== "string" ||
+      input.text.trim().length === 0 ||
+      input.text.length > MAX_INPUT_CHARACTERS ||
+      typeof input.currentDate !== "string" ||
+      typeof input.timezone !== "string"
+    ) {
+      return new Response(JSON.stringify({ error: "Invalid parse input" }), {
         status: 400,
         headers: { ...CORS, "content-type": "application/json" },
       });

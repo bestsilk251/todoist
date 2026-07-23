@@ -62,10 +62,10 @@ export default function ListTab() {
   return (
     <View style={StyleSheet.absoluteFill}>
       <ScrollView
+        testID="list-task-scroll"
         contentContainerStyle={styles.scroll}
         keyboardDismissMode="on-drag"
-        keyboardShouldPersistTaps="never"
-        onScrollBeginDrag={s.listSearchOpen ? s.closeListSearch : undefined}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         <ScreenHeader
@@ -98,8 +98,16 @@ export default function ListTab() {
               placeholderTextColor={palette.textFaint}
               style={styles.searchInput}
               autoFocus
-              onBlur={s.closeListSearch}
             />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Закрити пошук"
+              hitSlop={8}
+              onPress={s.closeListSearch}
+              style={styles.searchClose}
+            >
+              <Text style={styles.searchCloseText}>×</Text>
+            </Pressable>
           </View>
         ) : null}
 
@@ -352,6 +360,8 @@ const styles = StyleSheet.create({
   filterBadge: { position: 'absolute', top: -5, right: -4, minWidth: 17, height: 17, paddingHorizontal: 3, borderRadius: 9, overflow: 'hidden', color: palette.white, backgroundColor: palette.accent, fontSize: 9.5, lineHeight: 17, fontWeight: '800', textAlign: 'center' },
   searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 14, paddingHorizontal: 14, height: 44, marginBottom: 18 },
   searchInput: { flex: 1, color: palette.text, fontSize: 14, padding: 0 },
+  searchClose: { width: 32, height: 32, marginRight: -7, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  searchCloseText: { color: palette.textMuted, fontSize: 22, lineHeight: 24 },
   activeFilters: { alignItems: 'center', gap: 7, paddingRight: 14, paddingBottom: 16 },
   filterChip: { maxWidth: 170, minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, borderRadius: 11, borderWidth: 1 },
   filterChipDot: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },

@@ -1,23 +1,27 @@
 /** Bottom sheet showing parsed tasks for review before saving. */
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { palette, withAlpha } from '../../theme';
+import { palette, priorityColor, priorityLabel, type Priority, withAlpha } from '../../theme';
 import { previewDateLabel } from '../../lib/tasksRepo';
 import { parseDurationMinutes } from '../../lib/analyticsMath';
 import { useV5 } from './store';
 import PreviewDatePicker from './PreviewDatePicker';
 import DurationPicker, { formatDurationLabel } from './DurationPicker';
 
+const PRIORITIES: Priority[] = ['urgent', 'high', 'medium', 'low'];
+
 export default function PreviewSheet() {
   const s = useV5();
   const [dateTargetId, setDateTargetId] = useState<string | null>(null);
   const [categoryTargetId, setCategoryTargetId] = useState<string | null>(null);
   const [durationTargetId, setDurationTargetId] = useState<string | null>(null);
+  const [priorityTargetId, setPriorityTargetId] = useState<string | null>(null);
   useEffect(() => {
     if (!s.previewOpen) {
       setDateTargetId(null);
       setCategoryTargetId(null);
       setDurationTargetId(null);
+      setPriorityTargetId(null);
     }
   }, [s.previewOpen]);
   if (!s.previewOpen) return null;
@@ -68,6 +72,9 @@ export default function PreviewSheet() {
           {s.previewTasks.map((p) => {
             const editing = s.editingPreviewId === p.id;
             const choosingCategory = categoryTargetId === p.id;
+            const choosingPriority = priorityTargetId === p.id;
+            const priority = p.priority ?? (p.important ? 'medium' : 'low');
+            const selectedPriorityColor = priorityColor(priority);
             const cat = s.categories[p.category] || palette.textFaint;
             const cardBorder = editing ? palette.accent : p.needsConfirmation ? palette.accentDeep : palette.border;
             const cardBg = p.needsConfirmation ? withAlpha(palette.accentDeep, 0.14) : palette.surface;
@@ -107,6 +114,7 @@ export default function PreviewSheet() {
                       event?.stopPropagation?.();
                       setDurationTargetId(p.id);
                       setCategoryTargetId(null);
+                      setPriorityTargetId(null);
                     }}
                     style={[styles.editablePill, durationTargetId === p.id && styles.editablePillActive]}
                   >
@@ -120,15 +128,34 @@ export default function PreviewSheet() {
                       event?.stopPropagation?.();
                       setCategoryTargetId(choosingCategory ? null : p.id);
                       setDurationTargetId(null);
+                      setPriorityTargetId(null);
                     }}
                     style={[styles.categoryPill, { backgroundColor: withAlpha(cat, 0.15), borderColor: choosingCategory ? cat : 'transparent' }]}
                   >
                     <View style={[styles.categoryDot, { backgroundColor: cat }]} />
                     <Text numberOfLines={1} style={[styles.categoryPillText, { color: withAlpha(cat, 0.95) }]}>{p.category}</Text>
                   </Pressable>
-                  {p.important ? (
-                    <Pressable onPress={() => s.togglePreviewImportant(p.id)} style={styles.importantPill}><Text style={styles.importantText}>{p.priority === 'urgent' ? 'Терміново' : p.priority === 'high' ? 'Високий' : 'Важливо · середній'}</Text></Pressable>
-                  ) : null}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: choosingPriority }}
+                    accessibilityLabel={`Змінити пріоритет задачі ${p.title}`}
+                    onPress={(event) => {
+                      event?.stopPropagation?.();
+                      setPriorityTargetId(choosingPriority ? null : p.id);
+                      setCategoryTargetId(null);
+                      setDurationTargetId(null);
+                    }}
+                    style={[
+                      styles.priorityPill,
+                      {
+                        borderColor: choosingPriority ? selectedPriorityColor : withAlpha(selectedPriorityColor, 0.28),
+                        backgroundColor: withAlpha(selectedPriorityColor, 0.11),
+                      },
+                    ]}
+                  >
+                    <View style={[styles.priorityDot, { backgroundColor: selectedPriorityColor }]} />
+                    <Text style={[styles.priorityPillText, { color: selectedPriorityColor }]}>{priorityLabel(priority)}</Text>
+                  </Pressable>
                 </View>
 
                 {choosingCategory ? (
@@ -157,6 +184,41 @@ export default function PreviewSheet() {
                           >
                             <View style={[styles.categoryOptionDot, { backgroundColor: color }]} />
                             <Text numberOfLines={1} style={[styles.categoryOptionText, active && { color }]}>{category}</Text>
+                            {active ? <Text style={[styles.categoryOptionCheck, { color }]}>✓</Text> : null}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+
+                {choosingPriority ? (
+                  <View style={styles.optionPanel}>
+                    <View style={styles.optionPanelHeader}>
+                      <View>
+                        <Text style={styles.optionPanelTitle}>Пріоритет</Text>
+                        <Text style={styles.optionPanelHint}>Оберіть рівень важливості задачі</Text>
+                      </View>
+                      <Pressable onPress={(event) => { event?.stopPropagation?.(); setPriorityTargetId(null); }} style={styles.optionDone}><Text style={styles.optionDoneText}>Закрити</Text></Pressable>
+                    </View>
+                    <View style={styles.categoryOptions}>
+                      {PRIORITIES.map((option) => {
+                        const color = priorityColor(option);
+                        const active = option === priority;
+                        return (
+                          <Pressable
+                            key={option}
+                            accessibilityLabel={`Обрати пріоритет ${priorityLabel(option)}`}
+                            accessibilityState={{ selected: active }}
+                            onPress={(event) => {
+                              event?.stopPropagation?.();
+                              s.setPreviewPriority(p.id, option);
+                              setPriorityTargetId(null);
+                            }}
+                            style={[styles.categoryOption, active && { borderColor: color, backgroundColor: withAlpha(color, 0.12) }]}
+                          >
+                            <View style={[styles.categoryOptionDot, { backgroundColor: color }]} />
+                            <Text numberOfLines={1} style={[styles.categoryOptionText, active && { color }]}>{priorityLabel(option)}</Text>
                             {active ? <Text style={[styles.categoryOptionCheck, { color }]}>✓</Text> : null}
                           </Pressable>
                         );
@@ -247,8 +309,9 @@ const styles = StyleSheet.create({
   timePill: { backgroundColor: palette.chip, borderWidth: 1, borderColor: palette.textFainter, borderStyle: 'dashed', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   timePillEmpty: { borderColor: withAlpha(palette.accent, 0.48), backgroundColor: withAlpha(palette.accent, 0.07) },
   timePillText: { fontSize: 11, color: palette.text },
-  importantPill: { backgroundColor: withAlpha(palette.accent, 0.12), paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
-  importantText: { fontSize: 11, color: palette.accent },
+  priorityPill: { minHeight: 30, maxWidth: 156, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 9, borderWidth: 1 },
+  priorityDot: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },
+  priorityPillText: { minWidth: 0, fontSize: 11, fontWeight: '600' },
   optionPanel: { marginTop: 11, padding: 11, borderRadius: 13, backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.border },
   optionPanelHeader: { minHeight: 38, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 },
   optionPanelTitle: { color: palette.text, fontSize: 13, fontWeight: '700' },

@@ -72,3 +72,27 @@ Deno.test("passes available categories to the prompt and preserves the selected 
   assertEquals(receivedPrompt.includes('"Work"'), true);
   assertEquals(result.tasks[0].category, "Work");
 });
+
+Deno.test("retries once when a long parse response is temporarily invalid", async () => {
+  let calls = 0;
+  const flakyLLM = () => {
+    calls += 1;
+    if (calls === 1) return Promise.resolve("truncated response");
+    return Promise.resolve(
+      `[{"title":"Пробіжка","date":"2026-07-21","time":"08:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":30},{"title":"Звіт","date":"2026-07-21","time":"17:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":45},{"title":"Зустріч","date":"2026-07-21","time":"20:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60}]`,
+    );
+  };
+
+  const result = await handleParseTask(
+    {
+      text: "завтра пробіжка потім звіт і ввечері зустріч",
+      currentDate: "2026-07-20",
+      timezone: "Europe/Kyiv",
+    },
+    flakyLLM,
+  );
+
+  assertEquals(calls, 2);
+  assertEquals(result.fallback, undefined);
+  assertEquals(result.tasks.map((task) => task.title), ["Пробіжка", "Звіт", "Зустріч"]);
+});

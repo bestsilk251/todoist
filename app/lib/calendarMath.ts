@@ -36,6 +36,15 @@ export function minutesToClock(value: number): string {
   return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
 }
 
+export function shiftClockByMinutes(hour: number, minute: number, deltaMinutes: number): { hour: number; minute: number } {
+  const minutesInDay = 24 * 60;
+  const shifted = ((hour * 60 + minute + deltaMinutes) % minutesInDay + minutesInDay) % minutesInDay;
+  return {
+    hour: Math.floor(shifted / 60),
+    minute: shifted % 60,
+  };
+}
+
 export function durationBetweenClocks(start: string, end: string): number {
   const startMinutes = clockToMinutes(start);
   let duration = clockToMinutes(end) - startMinutes;

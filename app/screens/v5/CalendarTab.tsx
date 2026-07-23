@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
 import { palette, priorityColor, withAlpha } from '../../theme';
-import { weekShort, monthsGen, dayPhrase, pluralTasks } from '../../lib/v5data';
+import { compareTasksChronologically, formatTaskDateFromOffset, weekShort, monthsGen, dayPhrase, pluralTasks } from '../../lib/v5data';
 import type { V5Task } from '../../lib/v5data';
 import { useV5 } from './store';
 import { CategoryTag, ScreenHeader, SegmentedControl } from './ui';
@@ -571,15 +571,16 @@ function WeekView({ monday, offsetOf }: { monday: Date; offsetOf: (d: Date) => n
   const rows = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday); d.setDate(monday.getDate() + i);
     const off = offsetOf(d);
-    const dayTasks = s.tasks.filter((task) => isTaskOnCalendarDay(task, off) && isTaskInListSection(task, 'active'));
+    const dayTasks = s.tasks.filter((task) => isTaskOnCalendarDay(task, off));
     const busy = dayTasks.reduce((sum, task) => sum + (task.time ? (task.durationMinutes ?? DEFAULT_TIMED_TASK_DURATION_MINUTES) : 0), 0);
     const durationLabel = (minutes: number) => minutes >= 60 ? `${Math.floor(minutes / 60)} год${minutes % 60 ? ` ${minutes % 60} хв` : ''}` : `${minutes} хв`;
     const busyLabel = durationLabel(busy);
     const freeLabel = durationLabel(Math.max(0, 480 - busy));
     const isSelected = off === s.calendarDayOffset;
     const isToday = off === 0;
+    const availabilityLabel = off < 0 ? 'День завершено' : `Вільно ${freeLabel}`;
     const loadPct = Math.min(100, Math.round((busy / 480) * 100));
-    return { i, num: d.getDate(), label: weekShort[i], off, dayTasks, busyLabel, freeLabel, isSelected, isToday, loadPct };
+    return { i, num: d.getDate(), label: weekShort[i], off, dayTasks, busyLabel, availabilityLabel, isSelected, isToday, loadPct };
   });
   return (
     <View style={{ gap: 8 }}>
@@ -591,7 +592,7 @@ function WeekView({ monday, offsetOf }: { monday: Date; offsetOf: (d: Date) => n
           <View style={{ flex: 1 }}>
             <Text style={styles.weekSummary}>{r.dayTasks.length} {pluralTasks(r.dayTasks.length)} · {r.busyLabel}</Text>
             <View style={styles.weekLoadTrack}><View style={{ width: `${r.loadPct}%`, height: '100%', backgroundColor: r.loadPct === 0 ? 'transparent' : palette.accent, borderRadius: 3 }} /></View>
-            <View style={styles.weekLoadLabels}><Text style={styles.weekLoadText}>Зайнято {r.loadPct}%</Text><Text style={styles.weekLoadText}>Вільно {r.freeLabel}</Text></View>
+            <View style={styles.weekLoadLabels}><Text style={styles.weekLoadText}>Зайнято {r.loadPct}%</Text><Text style={styles.weekLoadText}>{r.availabilityLabel}</Text></View>
           </View>
         </Pressable>
       ))}
@@ -619,7 +620,9 @@ function MonthView({ selectedDate, offsetOf }: { selectedDate: Date; offsetOf: (
   const selOffset = s.calendarDayOffset;
   const selDate = new Date(today); selDate.setDate(today.getDate() + selOffset);
   const labelBase = selOffset === 0 ? 'Сьогодні' : `${selDate.getDate()} ${monthsGen[selDate.getMonth()]}`;
-  const selTasks = s.tasks.filter((task) => isTaskOnCalendarDay(task, selOffset) && isTaskInListSection(task, 'active'));
+  const selTasks = s.tasks
+    .filter((task) => isTaskOnCalendarDay(task, selOffset))
+    .sort(compareTasksChronologically);
 
   return (
     <ScrollView contentContainerStyle={styles.scroll} stickyHeaderIndices={[1]} showsVerticalScrollIndicator={false}>
@@ -644,16 +647,34 @@ function MonthView({ selectedDate, offsetOf }: { selectedDate: Date; offsetOf: (
       <View style={{ gap: 8 }}>
         {selTasks.length === 0 ? (
           <Text style={styles.monthEmpty}>Немає задач на цей день</Text>
-        ) : selTasks.map((t) => (
-          <View key={t.id} style={styles.monthTaskRow}>
-            <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: priorityColor(t.priority) }} />
+        ) : selTasks.map((t) => {
+          const pastDateLabel = t.dueInDays != null && t.dueInDays < 0
+            ? formatTaskDateFromOffset(t.dueInDays)
+            : null;
+          const whenLabel = t.time
+            ? `${pastDateLabel ?? dayPhrase(t.dueInDays!)}, ${t.time}`
+            : (pastDateLabel ?? dayPhrase(t.dueInDays!));
+          return (
+          <Pressable
+            key={t.id}
+            accessibilityRole="button"
+            accessibilityLabel={`Відкрити задачу ${t.title}`}
+            onPress={() => s.openTaskDetail(t.id)}
+            style={[styles.monthTaskRow, t.completed && styles.monthTaskRowCompleted]}
+          >
+            <View style={[styles.monthTaskBar, { backgroundColor: t.overdue ? palette.accent : t.completed ? palette.borderStrong : priorityColor(t.priority) }]} />
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 14, color: palette.text }}>{t.title}</Text>
-              <Text style={{ fontSize: 10.5, color: withAlpha(s.categories[t.category] || palette.textFaint, 0.9), marginTop: 3 }}>{t.category}</Text>
+              <Text style={[styles.monthTaskTitle, t.completed && styles.monthTaskTitleCompleted]}>{t.title}</Text>
+              <View style={styles.monthTaskMeta}>
+                <Text style={{ fontSize: 10.5, color: withAlpha(s.categories[t.category] || palette.textFaint, 0.9) }}>{t.category}</Text>
+                {t.completed ? <Text style={styles.monthTaskCompleted}>Виконано</Text> : null}
+                {t.overdue ? <Text style={styles.monthTaskOverdue}>Прострочено</Text> : null}
+              </View>
             </View>
-            <Text style={{ fontSize: 11.5, color: palette.textMuted }}>{t.time ? `${dayPhrase(t.dueInDays!)}, ${t.time}` : dayPhrase(t.dueInDays!)}</Text>
-          </View>
-        ))}
+            <Text style={styles.monthTaskWhen}>{whenLabel}</Text>
+          </Pressable>
+          );
+        })}
       </View>
     </ScrollView>
   );
@@ -776,4 +797,12 @@ const styles = StyleSheet.create({
   monthSelLabel: { fontSize: 12, fontWeight: '600', color: palette.textMuted, letterSpacing: 0.5, textTransform: 'uppercase' },
   monthEmpty: { fontSize: 13, color: palette.textFaint, paddingVertical: 16, textAlign: 'center' },
   monthTaskRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 14 },
+  monthTaskRowCompleted: { opacity: 0.58 },
+  monthTaskBar: { width: 3, alignSelf: 'stretch', borderRadius: 2 },
+  monthTaskTitle: { fontSize: 14, color: palette.text },
+  monthTaskTitleCompleted: { color: palette.textFaint, textDecorationLine: 'line-through' },
+  monthTaskMeta: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 3, flexWrap: 'wrap' },
+  monthTaskCompleted: { color: palette.badgeGreen, fontSize: 10, fontWeight: '600' },
+  monthTaskOverdue: { color: palette.accent, fontSize: 10, fontWeight: '600' },
+  monthTaskWhen: { maxWidth: 116, fontSize: 11.5, color: palette.textMuted, textAlign: 'right' },
 });

@@ -34,9 +34,20 @@ Deno.test("prompt defines Ukrainian colloquial time rules", () => {
   const prompt = buildSystemPrompt({ currentDate: "2026-07-20", timezone: "Europe/Kyiv" });
   assert(prompt.includes('"на 5 годину"'));
   assert(prompt.includes("17:00"));
-  assert(prompt.includes('"8 ранку" means 08:00'));
-  assert(prompt.includes('"8 вечора" means 20:00'));
+  assert(prompt.includes('"8 ранку"'));
+  assert(prompt.includes("mean 08:00"));
+  assert(prompt.includes('"8 вечора"'));
+  assert(prompt.includes("mean 20:00"));
   assert(prompt.includes('"needs_confirmation" to false'));
+});
+
+Deno.test("prompt teaches long unpunctuated voice transcript splitting", () => {
+  const prompt = buildSystemPrompt({ currentDate: "2026-07-20", timezone: "Europe/Kyiv" });
+  assert(prompt.includes("Voice transcripts often have no punctuation"));
+  assert(prompt.includes('"потім"'));
+  assert(prompt.includes("Never merge several independent actions"));
+  assert(prompt.includes("на 8-у ранку"));
+  assert(prompt.includes('"Зробити звіт"'));
 });
 
 Deno.test("addDays rolls over month boundaries", () => {

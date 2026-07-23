@@ -1,4 +1,4 @@
-import { clockToMinutes, durationBetweenClocks, extractScheduleFromText, findBoundedFreeWindow, findScheduleConflict, findWorkingHoursFreeWindows, getCompactTimelineRange, getConflictingItemIndexes, getNonHourlyBoundaries, getOccupiedMinutes, minutesToClock, snapTaskStartMinutes } from '../calendarMath';
+import { clockToMinutes, durationBetweenClocks, extractScheduleFromText, findBoundedFreeWindow, findScheduleConflict, findWorkingHoursFreeWindows, getCompactTimelineRange, getConflictingItemIndexes, getNonHourlyBoundaries, getOccupiedMinutes, minutesToClock, shiftClockByMinutes, snapTaskStartMinutes } from '../calendarMath';
 
 describe('calendarMath', () => {
   it('preserves minute precision and renders the end of day as 00:00', () => {
@@ -7,6 +7,12 @@ describe('calendarMath', () => {
     expect(minutesToClock(25 * 60 + 15)).toBe('01:15');
     expect(durationBetweenClocks('10:15', '11:40')).toBe(85);
     expect(durationBetweenClocks('23:30', '00:15')).toBe(45);
+  });
+
+  it('shifts quick time actions from the currently selected wheel value', () => {
+    expect(shiftClockByMinutes(13, 15, 30)).toEqual({ hour: 13, minute: 45 });
+    expect(shiftClockByMinutes(13, 15, 60)).toEqual({ hour: 14, minute: 15 });
+    expect(shiftClockByMinutes(23, 45, 30)).toEqual({ hour: 0, minute: 15 });
   });
 
   it('snaps dragged tasks to 15-minute starts and keeps them inside the day', () => {

@@ -17,6 +17,13 @@ import { clearAnalyticsCache } from './analyticsRepo';
 const DAY = 86400000;
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 
+/**
+ * Long voice transcripts need a real NLU response. A short timeout silently
+ * degraded them to one local fallback task, so keep a bounded network guard
+ * while allowing the Edge Function and model enough time on mobile networks.
+ */
+export const TASK_PARSE_TIMEOUT_MS = 30_000;
+
 /** Local Date → 'YYYY-MM-DD'. */
 export function isoOf(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

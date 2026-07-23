@@ -1,5 +1,6 @@
-import { fireEvent, render } from '@testing-library/react-native';
-import TimePicker from '../TimePicker';
+import React from 'react';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import TimePicker, { WheelColumn, type WheelColumnHandle } from '../TimePicker';
 import { useV5 } from '../store';
 
 jest.mock('../store', () => ({ useV5: jest.fn() }));
@@ -57,10 +58,42 @@ describe('TimePicker', () => {
     const actions = mockTimePicker();
     const screen = render(<TimePicker />);
 
+    fireEvent.press(screen.getByText('+30 хв'));
+    expect(actions.applyTimePreset).toHaveBeenLastCalledWith(9, 50);
+
+    fireEvent.press(screen.getByText('+1 год'));
+    expect(actions.applyTimePreset).toHaveBeenLastCalledWith(10, 20);
+
     fireEvent.press(screen.getByText('18:00'));
-    expect(actions.applyTimePreset).toHaveBeenCalledWith(18, 0);
+    expect(actions.applyTimePreset).toHaveBeenLastCalledWith(18, 0);
 
     fireEvent.press(screen.getByText('Готово'));
     expect(actions.confirmTimePicker).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores synthetic wheel events while a quick action cancels momentum', () => {
+    const onPick = jest.fn();
+    const ref = React.createRef<WheelColumnHandle>();
+    const screen = render(
+      <WheelColumn
+        ref={ref}
+        accessibilityLabel="Хвилини"
+        testID="standalone-minute-wheel"
+        values={Array.from({ length: 60 }, (_, value) => value)}
+        selectedValue={15}
+        onPick={onPick}
+      />,
+    );
+
+    act(() => ref.current?.syncToValue(45));
+    fireEvent.scroll(screen.getByTestId('standalone-minute-wheel'), {
+      nativeEvent: {
+        contentOffset: { x: 0, y: (4 * 60 + 31) * 48 },
+        contentSize: { width: 96, height: 9 * 60 * 48 + 192 },
+        layoutMeasurement: { width: 96, height: 240 },
+      },
+    });
+
+    expect(onPick).not.toHaveBeenCalled();
   });
 });

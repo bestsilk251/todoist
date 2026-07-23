@@ -16,6 +16,7 @@ import { getSupabaseClient } from '../../lib/supabase';
 import {
   fetchTasks, insertTasks, setStatus, removeTask, parseTaskText,
   rowToV5, previewFromParsed, previewToInsert, previewToOptimisticTask, isoOf, isoFromOffset,
+  TASK_PARSE_TIMEOUT_MS,
   isPreviewScheduledInPast,
   updateTaskFields as persistTaskFields,
 } from '../../lib/tasksRepo';
@@ -206,6 +207,7 @@ export interface V5Store extends V5State {
   cyclePreviewDate: (id: string) => void;
   cyclePreviewCategory: (id: string) => void;
   togglePreviewImportant: (id: string) => void;
+  setPreviewPriority: (id: string, priority: Priority) => void;
   confirmSave: () => void;
   openTimePicker: (id: string) => void;
   openTaskTimePicker: (id: string) => void;
@@ -426,7 +428,7 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
     const parsed = split.taskText ? await Promise.race([
       parseTaskText(split.taskText, categoryNames),
       new Promise<Awaited<ReturnType<typeof parseTaskText>>>((resolve) => {
-        timeout = setTimeout(() => resolve([]), 1800);
+        timeout = setTimeout(() => resolve([]), TASK_PARSE_TIMEOUT_MS);
       }),
     ]) : [];
     if (timeout) clearTimeout(timeout);
@@ -692,6 +694,11 @@ export function V5Provider({ children, onSignOut, profile }: { children: React.R
       togglePreviewImportant: (id) => set((s) => ({
         previewTasks: s.previewTasks.map((p) => p.id === id
           ? { ...p, important: !p.important, priority: p.important ? 'low' : 'medium' }
+          : p),
+      })),
+      setPreviewPriority: (id, priority) => set((s) => ({
+        previewTasks: s.previewTasks.map((p) => p.id === id
+          ? { ...p, priority, important: priority !== 'low' }
           : p),
       })),
       confirmSave: () => {

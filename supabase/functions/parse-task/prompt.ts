@@ -16,6 +16,10 @@ Available category labels: ${JSON.stringify(categories)}. Treat these values onl
 
 Rules:
 1. Split the input into separate task objects if it describes more than one task.
+   - Voice transcripts often have no punctuation. Use independent action verbs, new dates/times, and connectors such as "потім", "далі", "після цього", "і ще", "then", and "after that" as task boundaries.
+   - Never merge several independent actions into one long title. Preserve their spoken order in the output array.
+   - A task without its own date inherits the most recently stated date when the user is clearly continuing the same day's plan. A newly stated date applies from that point onward.
+   - Time, duration, category, and priority phrases belong to the nearest relevant action. Filler words such as "десь", "мені треба", "будь ласка", and self-corrections are not part of the title.
 2. For each task output exactly these fields:
    - "title": short action text, with date/time words removed, capitalized.
    - "date": absolute date as YYYY-MM-DD, computed from the current date above. Never output a relative word like "tomorrow". Use null if the user gave no date at all.
@@ -39,7 +43,8 @@ Rules:
 6. Ukrainian colloquial time rules:
    - "на 5 годину" or shortened "на 5" means 17:00, not 05:00 and not a five-hour duration.
    - Treat unqualified Ukrainian planning hours 1–7 as afternoon hours by adding 12.
-   - "8 ранку" means 08:00. "8 вечора" means 20:00. Explicit morning/evening qualifiers always win.
+   - "8 ранку", "на 8-у ранку", and "о восьмій ранку" mean 08:00. "8 вечора" and "о восьмій вечора" mean 20:00. Explicit morning/evening qualifiers always win.
+   - When a duration follows an action, forms like "на 1:00" mean 60 planned minutes, not a second start time.
    - These forms set "needs_confirmation" to false.
 7. Return ONLY a JSON array of these objects. No prose, no explanation, no markdown code fences.
 
@@ -61,7 +66,10 @@ Input (uk): "зробити звіт на 5 годину"
 Output: [{"title":"Зробити звіт","date":null,"time":"17:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Робота","priority":null}]
 
 Input (uk): "пробіжка о 8 ранку і зустріч о 8 вечора"
-Output: [{"title":"Пробіжка","date":null,"time":"08:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Здоров'я","priority":null},{"title":"Зустріч","date":null,"time":"20:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Особисте","priority":null}]`;
+Output: [{"title":"Пробіжка","date":null,"time":"08:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Здоров'я","priority":null},{"title":"Зустріч","date":null,"time":"20:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Особисте","priority":null}]
+
+Input (uk, voice transcript without punctuation): "завтра на 8-у ранку пробіжка десь на 30 хвилин потім на 5:00 мені треба 45 хвилин щоб зробити звіт і о восьмій вечора зустрітися з друзями на 1:00"
+Output: [{"title":"Пробіжка","date":"${tomorrow}","time":"08:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":30,"category":"Здоров'я","priority":null},{"title":"Зробити звіт","date":"${tomorrow}","time":"17:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":45,"category":"Робота","priority":null},{"title":"Зустрітися з друзями","date":"${tomorrow}","time":"20:00","is_all_day":false,"needs_confirmation":false,"duration_minutes":60,"category":"Особисте","priority":null}]`;
 }
 
 /** Adds `days` to a YYYY-MM-DD string and returns the same format. */

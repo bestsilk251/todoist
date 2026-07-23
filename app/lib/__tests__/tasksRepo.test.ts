@@ -1,4 +1,4 @@
-import { enrichParsedTasksWithSchedule, inferPriorityFromText, isoOf, isPreviewScheduledInPast, previewFromParsed, previewToInsert, previewToOptimisticTask, resolveParsedCategory, rowToV5 } from '../tasksRepo';
+import { enrichParsedTasksWithSchedule, inferPriorityFromText, isoOf, isPreviewScheduledInPast, previewFromParsed, previewToInsert, previewToOptimisticTask, resolveParsedCategory, rowToV5, TASK_PARSE_TIMEOUT_MS } from '../tasksRepo';
 import type { Task } from '../../types';
 
 function databaseTask(overrides: Partial<Task> = {}): Task {
@@ -26,6 +26,10 @@ function databaseTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('parsed task duration persistence', () => {
+  it('allows long server parsing on slower mobile networks', () => {
+    expect(TASK_PARSE_TIMEOUT_MS).toBeGreaterThanOrEqual(30_000);
+  });
+
   it('maps the word important to medium priority', () => {
     expect(inferPriorityFromText('Важлива зустріч із клієнтом')).toBe('medium');
     expect(inferPriorityFromText('Неважлива нотатка')).toBe('low');

@@ -17,6 +17,7 @@ function mockPreview(open = true) {
       duration: '1 год',
       category: 'Робота',
       important: false,
+      priority: 'low',
       needsConfirmation: false,
     }],
     previewError: null,
@@ -29,6 +30,7 @@ function mockPreview(open = true) {
     openTimePicker: jest.fn(),
     cyclePreviewCategory: jest.fn(),
     togglePreviewImportant: jest.fn(),
+    setPreviewPriority: jest.fn(),
     cancelPreview: jest.fn(),
   };
   (useV5 as jest.Mock).mockReturnValue(store);
@@ -64,6 +66,16 @@ describe('PreviewSheet backdrop confirmation', () => {
 
     const store = (useV5 as jest.Mock).mock.results.at(-1)?.value;
     expect(store.updatePreviewField).toHaveBeenCalledWith('preview-1', 'category', "Здоров'я");
+  });
+
+  it('allows one of four priority levels to be selected before saving', () => {
+    const { store } = mockPreview();
+    const screen = render(<PreviewSheet />);
+
+    fireEvent.press(screen.getByLabelText('Змінити пріоритет задачі Зустріч з командою'));
+    fireEvent.press(screen.getByLabelText('Обрати пріоритет Високий'));
+
+    expect(store.setPreviewPriority).toHaveBeenCalledWith('preview-1', 'high');
   });
 
   it('allows the planned duration to be changed with presets', () => {
